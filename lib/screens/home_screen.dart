@@ -7,7 +7,7 @@ import '../providers/player_provider.dart';
 import '../providers/theme_provider.dart';
 import '../innertube/innertube_client.dart';
 import 'package:path_provider/path_provider.dart';
-import 'dart:io';
+import 'playlist_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -106,18 +106,15 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _openPlaylistModal(PlaylistResult playlist) {
-    final player = context.read<PlayerProvider>();
-    final theme = context.read<ThemeProvider>();
-    player.fetchPlaylistContent(playlist.id);
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: theme.bgColor1,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-      ),
-      builder: (_) => _PlaylistModal(player: player, title: playlist.title),
-    );
+    Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) => PlaylistScreen(
+                  playlistId: playlist.id,
+                  title: playlist.title,
+                  thumbnail: playlist.thumbnail,
+                  owner: playlist.owner,
+                )));
   }
 
   @override
@@ -391,11 +388,15 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   trailing:
                       const Icon(Icons.chevron_right, color: Colors.white24),
                   onTap: () {
-                    final mins = int.tryParse(t.split(' ')[0]) ?? 0;
-                    if (mins > 0) {
-                      context
-                          .read<PlayerProvider>()
-                          .setSleepTimer(Duration(minutes: mins));
+                    if (t == 'End of song') {
+                      context.read<PlayerProvider>().setSleepAfterSong();
+                    } else {
+                      final mins = int.tryParse(t.split(' ')[0]) ?? 0;
+                      if (mins > 0) {
+                        context
+                            .read<PlayerProvider>()
+                            .setSleepTimer(Duration(minutes: mins));
+                      }
                     }
                     Navigator.pop(context);
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -867,8 +868,7 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             final s = player.searchResults[i];
             return GestureDetector(
                 onTap: () => player.playSong(s),
-                onLongPress: () =>
-                    _showTrackOptionsMenu(context, s.title, s.artist),
+                onLongPress: () => _showTrackOptionsMenu(context, s, player),
                 child: _recentCard(s.thumbnail, s.title, s.artist));
           },
         ),
@@ -887,7 +887,13 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               artist: items[i].artist ?? '',
               thumbnail: items[i].artUri?.toString() ?? '')),
           onLongPress: () => _showTrackOptionsMenu(
-              context, items[i].title, items[i].artist ?? ''),
+              context,
+              SongResult(
+                  id: items[i].id,
+                  title: items[i].title,
+                  artist: items[i].artist ?? '',
+                  thumbnail: items[i].artUri?.toString() ?? ''),
+              player),
           child: _recentCard(items[i].artUri?.toString() ?? '', items[i].title,
               items[i].artist ?? ''),
         ),
@@ -943,8 +949,7 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           final s = items[i];
           return GestureDetector(
             onTap: () => player.playSong(s),
-            onLongPress: () =>
-                _showTrackOptionsMenu(context, s.title, s.artist),
+            onLongPress: () => _showTrackOptionsMenu(context, s, player),
             child: _songCardV2(s),
           );
         },
@@ -1152,7 +1157,7 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         final isPlaying = player.currentSong?.id == s.id && player.isPlaying;
         return GestureDetector(
           onTap: () => player.playSong(s),
-          onLongPress: () => _showTrackOptionsMenu(context, s.title, s.artist),
+          onLongPress: () => _showTrackOptionsMenu(context, s, player),
           child: Container(
             margin: const EdgeInsets.only(bottom: 8),
             padding: const EdgeInsets.all(10),
@@ -1235,8 +1240,7 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _showTrackOptionsMenu(
-      BuildContext context, String title, String artist) {
-    final player = context.read<PlayerProvider>();
+      BuildContext context, SongResult song, PlayerProvider player) {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1A1A2E),
@@ -1250,33 +1254,47 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ListTile(
               leading: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child:
-                      Container(width: 40, height: 40, color: Colors.white10)),
-              title: Text(title,
+                  child: CachedNetworkImage(
+                      imageUrl: song.thumbnail,
+                      width: 40,
+                      height: 40,
+                      fit: BoxFit.cover,
+                      errorWidget: (_, __, ___) => Container(
+                          width: 40, height: 40, color: Colors.white10))),
+              title: Text(song.title,
+                  maxLines: 1,
                   style: const TextStyle(
                       color: Colors.white,
                       fontSize: 14,
                       fontWeight: FontWeight.bold)),
-              subtitle: Text(artist,
+              subtitle: Text(song.artist,
+                  maxLines: 1,
                   style: const TextStyle(color: Colors.white54, fontSize: 12)),
             ),
             const Divider(color: Colors.white10),
             _actionItem('Add to Liked', Icons.favorite_border, () {
-              player.toggleLike(player.currentSong);
+              player.toggleLikeSong(song);
               Navigator.pop(context);
             }),
             _actionItem('Queue Next', Icons.queue_music_rounded, () {
+              player.addToQueue(song);
               Navigator.pop(context);
             }),
             _actionItem('Download', Icons.download_rounded, () {
-              player.downloadTrack(player.currentSong);
+              player.downloadTrack(songToMediaItem(song));
               Navigator.pop(context);
             }),
             _actionItem('Share', Icons.share_rounded, () {
+              context.read<PlayerProvider>().shareSong(
+                    song.title,
+                    song.artist,
+                    song.id,
+                  );
               Navigator.pop(context);
             }),
             _actionItem('Remove from History', Icons.delete_outline_rounded,
                 () {
+              player.removeFromHistory(song.id);
               Navigator.pop(context);
             }, isDangerous: true),
           ],
@@ -1500,101 +1518,4 @@ class _RingPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_RingPainter old) => false;
-}
-
-class _PlaylistModal extends StatelessWidget {
-  final PlayerProvider player;
-  final String title;
-
-  const _PlaylistModal({required this.player, required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Consumer<PlayerProvider>(
-      builder: (ctx, p, _) => Container(
-        height: MediaQuery.of(context).size.height * 0.85,
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-                child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                        color: Colors.white24,
-                        borderRadius: BorderRadius.circular(2)))),
-            const SizedBox(height: 20),
-            Text(title,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900)),
-            const SizedBox(height: 4),
-            Text('${p.searchResults.length} songs',
-                style: const TextStyle(color: Colors.white54, fontSize: 13)),
-            const SizedBox(height: 16),
-            Expanded(
-              child: p.isSearching
-                  ? const Center(
-                      child:
-                          CircularProgressIndicator(color: Color(0xFF8B5CF6)))
-                  : p.searchResults.isEmpty
-                      ? const Center(
-                          child: Text('No songs found',
-                              style: TextStyle(
-                                  color: Colors.white38, fontSize: 15)))
-                      : ListView.builder(
-                          padding: EdgeInsets.zero,
-                          itemCount: p.searchResults.length,
-                          itemBuilder: (_, i) {
-                            final s = p.searchResults[i];
-                            final isPlaying =
-                                p.currentSong?.id == s.id && p.isPlaying;
-                            return ListTile(
-                              contentPadding:
-                                  const EdgeInsets.symmetric(vertical: 4),
-                              leading: ClipRRect(
-                                borderRadius: BorderRadius.circular(10),
-                                child: CachedNetworkImage(
-                                    imageUrl: s.thumbnail,
-                                    width: 50,
-                                    height: 50,
-                                    fit: BoxFit.cover),
-                              ),
-                              title: Text(s.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                      color: isPlaying
-                                          ? const Color(0xFF8B5CF6)
-                                          : Colors.white,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w700)),
-                              subtitle: Text(s.artist,
-                                  maxLines: 1,
-                                  style: const TextStyle(
-                                      color: Colors.white54, fontSize: 12)),
-                              trailing: Icon(
-                                  isPlaying
-                                      ? Icons.pause_circle_filled
-                                      : Icons.play_circle_fill,
-                                  color: isPlaying
-                                      ? const Color(0xFF8B5CF6)
-                                      : Colors.white38,
-                                  size: 32),
-                              onTap: () {
-                                p.playSong(s);
-                                Navigator.pop(context);
-                              },
-                            );
-                          },
-                        ),
-            ),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
-    );
-  }
 }

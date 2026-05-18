@@ -374,6 +374,23 @@ class _MiniPlayer extends StatelessWidget {
                   onPressed: player.skipToNext,
                   padding: EdgeInsets.zero,
                 ),
+                if (player.sleepTimerRemaining > 0)
+                  Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                          color: const Color(0xFFFFD700).withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(10)),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.timer_rounded,
+                            color: Color(0xFFFFD700), size: 12),
+                        const SizedBox(width: 4),
+                        Text('${player.sleepTimerRemaining ~/ 60}m',
+                            style: const TextStyle(
+                                color: Color(0xFFFFD700),
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold))
+                      ])),
               ],
             ),
             const SizedBox(height: 8),

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../providers/player_provider.dart';
 import '../providers/theme_provider.dart';
 import '../innertube/innertube_client.dart';
+import 'playlist_screen.dart';
 
 class ExploreScreen extends StatefulWidget {
   const ExploreScreen({super.key});
@@ -17,6 +18,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   int _selectedCategory = 0;
   final TextEditingController _searchCtrl = TextEditingController();
   Timer? _searchDebounce;
+  bool _hasSearched = false;
 
   final List<Map<String, dynamic>> _discoveryCards = [
     {
@@ -148,6 +150,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     _searchDebounce?.cancel();
     if (q.isEmpty) return;
     _searchDebounce = Timer(const Duration(milliseconds: 500), () {
+      if (!_hasSearched) setState(() => _hasSearched = true);
       player.search(q);
     });
   }
@@ -155,18 +158,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
   void _openPlaylistModal(BuildContext ctx, PlayerProvider player, String query,
       String title) async {
     player.search(query);
-    showModalBottomSheet(
-      context: ctx,
-      backgroundColor: const Color(0xFF0D0D1A),
-      isScrollControlled: true,
-      useSafeArea: true, // Make it look more like a full screen
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
-      builder: (_) => SizedBox(
-        height: MediaQuery.of(ctx).size.height * 0.9,
-        child: _PlaylistModal(player: player, title: title),
-      ),
-    );
+    Navigator.push(
+        ctx,
+        MaterialPageRoute(
+            builder: (_) => PlaylistScreen(
+                  playlistId: query,
+                  title: title,
+                  thumbnail: '',
+                  owner: '',
+                )));
   }
 
   void _showNotificationsSheet() {
@@ -422,7 +422,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 child: TextField(
                   controller: _searchCtrl,
                   onChanged: (q) => _onSearchChanged(q, player),
-                  onSubmitted: (q) => player.search(q),
+                  onSubmitted: (q) {
+                    if (!_hasSearched) setState(() => _hasSearched = true);
+                    player.search(q);
+                  },
                   style: const TextStyle(color: Colors.white),
                   decoration: const InputDecoration(
                     hintText: "Search songs, artists...",
@@ -436,8 +439,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
               ),
             ),
             const SizedBox(width: 8),
-            _iconBtn(
-                Icons.search_rounded, () => player.search(_searchCtrl.text)),
+            _iconBtn(Icons.search_rounded, () {
+              if (!_hasSearched) setState(() => _hasSearched = true);
+              player.search(_searchCtrl.text);
+            }),
             const SizedBox(width: 8),
             _iconBtn(Icons.tune_rounded, () => _showFilterSheet()),
           ]),
@@ -702,7 +707,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Widget _topPicksGrid(PlayerProvider player) {
     // Prefer recently played history, fall back to search results
     final recentItems = player.recentlyPlayed;
-    final hasRecent = recentItems.isNotEmpty;
+    final hasRecent = recentItems.isNotEmpty && !_hasSearched;
     final count = hasRecent
         ? (recentItems.length > 5 ? 5 : recentItems.length)
         : (player.searchResults.length > 5 ? 5 : player.searchResults.length);
@@ -913,99 +918,3 @@ class _ExploreScreenState extends State<ExploreScreen> {
 // ──────────────────────────────────────────────
 // PLAYLIST MODAL — used by all category/vibe/genre cards
 // ──────────────────────────────────────────────
-class _PlaylistModal extends StatelessWidget {
-  final PlayerProvider player;
-  final String title;
-
-  const _PlaylistModal({required this.player, required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Consumer<PlayerProvider>(
-      builder: (ctx, p, _) => Container(
-        height: MediaQuery.of(context).size.height * 0.85,
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-                child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                        color: Colors.white24,
-                        borderRadius: BorderRadius.circular(2)))),
-            const SizedBox(height: 20),
-            Text(title,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900)),
-            const SizedBox(height: 4),
-            Text('${p.searchResults.length} songs',
-                style: const TextStyle(color: Colors.white54, fontSize: 13)),
-            const SizedBox(height: 16),
-            Expanded(
-              child: p.isSearching
-                  ? const Center(
-                      child:
-                          CircularProgressIndicator(color: Color(0xFF8B5CF6)))
-                  : p.searchResults.isEmpty
-                      ? const Center(
-                          child: Text('No songs found',
-                              style: TextStyle(
-                                  color: Colors.white38, fontSize: 15)))
-                      : ListView.builder(
-                          padding: EdgeInsets.zero,
-                          itemCount: p.searchResults.length,
-                          itemBuilder: (_, i) {
-                            final s = p.searchResults[i];
-                            final isPlaying =
-                                p.currentSong?.id == s.id && p.isPlaying;
-                            return ListTile(
-                              contentPadding:
-                                  const EdgeInsets.symmetric(vertical: 4),
-                              leading: ClipRRect(
-                                borderRadius: BorderRadius.circular(10),
-                                child: CachedNetworkImage(
-                                    imageUrl: s.thumbnail,
-                                    width: 50,
-                                    height: 50,
-                                    fit: BoxFit.cover),
-                              ),
-                              title: Text(s.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                      color: isPlaying
-                                          ? const Color(0xFF8B5CF6)
-                                          : Colors.white,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w700)),
-                              subtitle: Text(s.artist,
-                                  maxLines: 1,
-                                  style: const TextStyle(
-                                      color: Colors.white54, fontSize: 12)),
-                              trailing: Icon(
-                                  isPlaying
-                                      ? Icons.pause_circle_filled
-                                      : Icons.play_circle_fill,
-                                  color: isPlaying
-                                      ? const Color(0xFF8B5CF6)
-                                      : Colors.white38,
-                                  size: 32),
-                              onTap: () {
-                                p.playSong(s);
-                                Navigator.pop(context);
-                              },
-                            );
-                          },
-                        ),
-            ),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
-    );
-  }
-}

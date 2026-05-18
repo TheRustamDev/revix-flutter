@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:hive/hive.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt_exp;
@@ -79,6 +80,7 @@ class PlayerProvider extends ChangeNotifier {
   // Sleep Timer
   Timer? _sleepTimer;
   int sleepTimerRemaining = 0; // seconds
+  bool _sleepAfterSong = false;
 
   // Taste profile — persisted in Hive
   Box? _tasteBox;
@@ -99,8 +101,9 @@ class PlayerProvider extends ChangeNotifier {
   bool _autoQueuing = false;
 
   // Lyrics
-  String lyrics = '';
+  List<LyricLine> lyricLines = [];
   bool isLyricsLoading = false;
+  int currentLyricIndex = 0;
 
   PlayerProvider(this._handler) {
     Future.microtask(() {
@@ -154,10 +157,14 @@ class PlayerProvider extends ChangeNotifier {
       queue = _handler.currentQueue;
       currentIndex = _handler.currentIndex;
 
-      if (state.processingState == AudioProcessingState.completed &&
-          autoPlay &&
-          currentSong != null) {
-        Future.microtask(() => _smartAutoQueue());
+      if (state.processingState == AudioProcessingState.completed) {
+        if (_sleepAfterSong) {
+          pause();
+          _sleepAfterSong = false;
+          notifyListeners();
+        } else if (autoPlay && currentSong != null) {
+          Future.microtask(() => _smartAutoQueue());
+        }
       }
 
       final d = _handler.player.duration;
@@ -176,6 +183,20 @@ class PlayerProvider extends ChangeNotifier {
 
     _positionSub = AudioService.position.listen((pos) {
       position = pos;
+      // Update active lyric line
+      if (lyricLines.isNotEmpty) {
+        final ms = pos.inMilliseconds;
+        int newIndex = 0;
+        for (int i = 0; i < lyricLines.length; i++) {
+          if (lyricLines[i].startMs <= ms)
+            newIndex = i;
+          else
+            break;
+        }
+        if (newIndex != currentLyricIndex) {
+          currentLyricIndex = newIndex;
+        }
+      }
       notifyListeners();
     });
 
@@ -261,6 +282,24 @@ class PlayerProvider extends ChangeNotifier {
             })
         .toList();
     await _libraryBox?.put('recently_played', list);
+  }
+
+  void removeFromHistory(String id) {
+    recentlyPlayed.removeWhere((s) => s.id == id);
+    _saveRecent();
+    notifyListeners();
+  }
+
+  void shareSong(String title, String artist, String videoId) {
+    const platform = MethodChannel('com.revixone/share');
+    try {
+      platform.invokeMethod('share', {
+        'text':
+            'Listening to "$title" by $artist on REVIX One 🎵\nhttps://music.youtube.com/watch?v=$videoId',
+      });
+    } catch (e) {
+      debugPrint('Share error: $e');
+    }
   }
 
   String _detectGenre(String title, String artist) {
@@ -560,6 +599,10 @@ class PlayerProvider extends ChangeNotifier {
       isPlaying ? await pause() : await play();
   Future<void> skipToNext() => _handler.skipToNext();
   Future<void> skipToPrevious() => _handler.skipToPrevious();
+  Future<void> skipToQueueItem(int index) async {
+    await _handler.skipToQueueItem(index);
+  }
+
   Future<void> seekTo(Duration position) => _handler.seek(position);
 
   Future<void> addToQueue(SongResult song) async {
@@ -877,7 +920,16 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   // Sleep Timer logic
+  void setSleepAfterSong() {
+    _sleepTimer?.cancel();
+    sleepTimerRemaining = 0;
+    _sleepAfterSong = true;
+    notifyListeners();
+  }
+
   void setSleepTimer(Duration duration) {
+    _sleepAfterSong = false;
+
     _sleepTimer?.cancel();
     sleepTimerRemaining = duration.inSeconds;
     notifyListeners();
@@ -896,8 +948,10 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   void cancelSleepTimer() {
+    _sleepAfterSong = false;
     _sleepTimer?.cancel();
     sleepTimerRemaining = 0;
+
     notifyListeners();
   }
 
@@ -940,19 +994,13 @@ class PlayerProvider extends ChangeNotifier {
 
   Future<void> fetchLyrics(String videoId) async {
     isLyricsLoading = true;
-    lyrics = '';
+    lyricLines = [];
+    currentLyricIndex = 0;
     notifyListeners();
-
     try {
-      final browseId = await _innerTube.getLyricsBrowseId(videoId);
-      if (browseId != null) {
-        final text = await _innerTube.getLyrics(browseId);
-        lyrics = text ?? 'Lyrics not available for this track.';
-      } else {
-        lyrics = 'Lyrics not available for this track.';
-      }
+      lyricLines = await _innerTube.getTimedLyrics(videoId);
     } catch (e) {
-      lyrics = 'Error fetching lyrics: $e';
+      lyricLines = [];
     } finally {
       isLyricsLoading = false;
       notifyListeners();

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../providers/player_provider.dart';
 import '../providers/theme_provider.dart';
 import '../innertube/innertube_client.dart';
+import 'profile_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -42,19 +43,24 @@ class _LibraryScreenState extends State<LibraryScreen>
           decoration: BoxDecoration(gradient: theme.bg),
           child: SafeArea(
             bottom: false,
-            child: CustomScrollView(
-              physics: const BouncingScrollPhysics(),
-              slivers: [
-                SliverToBoxAdapter(child: _topBar()),
-                SliverToBoxAdapter(child: _header()),
-                SliverToBoxAdapter(child: _tabs()),
-                SliverToBoxAdapter(child: _statsGrid(player)),
-                SliverToBoxAdapter(child: _sectionHeader('Recently Played')),
-                SliverToBoxAdapter(child: _recentlyAdded(player)),
-                SliverToBoxAdapter(child: _sectionHeader('Your Playlists')),
-                SliverToBoxAdapter(child: _playlistsRow(player)),
-                SliverToBoxAdapter(child: _sectionHeader('Albums')),
-                SliverToBoxAdapter(child: _albumsRow(player)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _topBar(),
+                _header(),
+                _tabs(),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _musicTabView(player),
+                      _playlistsTabView(player),
+                      _albumsTabView(player),
+                      _artistsTabView(player),
+                      _downloadsTabView(player),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -84,20 +90,36 @@ class _LibraryScreenState extends State<LibraryScreen>
                     letterSpacing: 6)),
           ])),
           const Spacer(),
-          _circleBtn(Icons.search),
+          _circleBtn(Icons.search, onTap: () {
+            showModalBottomSheet(
+              context: context,
+              isScrollControlled: true,
+              backgroundColor: const Color(0xFF0D0D1A),
+              shape: const RoundedRectangleBorder(
+                  borderRadius:
+                      BorderRadius.vertical(top: Radius.circular(32))),
+              builder: (_) => const _SearchSheet(),
+            );
+          }),
           const SizedBox(width: 12),
-          _circleBtn(Icons.person_outline_rounded),
+          _circleBtn(Icons.person_outline_rounded, onTap: () {
+            Navigator.push(context,
+                MaterialPageRoute(builder: (context) => const ProfileScreen()));
+          }),
         ]),
       );
 
-  Widget _circleBtn(IconData icon) => Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: const Color(0xFF1A1A2E),
-            border: Border.all(color: Colors.white12, width: 0.5)),
-        child: Icon(icon, color: Colors.white, size: 20),
+  Widget _circleBtn(IconData icon, {VoidCallback? onTap}) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0xFF1A1A2E),
+              border: Border.all(color: Colors.white12, width: 0.5)),
+          child: Icon(icon, color: Colors.white, size: 20),
+        ),
       );
 
   Widget _header() => const Padding(
@@ -158,6 +180,153 @@ class _LibraryScreenState extends State<LibraryScreen>
         ),
       );
 
+  // Tab View Implementation
+  Widget _musicTabView(PlayerProvider player) => ListView(
+        physics: const BouncingScrollPhysics(),
+        children: [
+          _statsGrid(player),
+          _sectionHeader('Recently Played'),
+          _recentlyAdded(player),
+          _sectionHeader('Quick Picks'),
+          _quickPicksView(player),
+        ],
+      );
+
+  Widget _playlistsTabView(PlayerProvider player) => ListView(
+        physics: const BouncingScrollPhysics(),
+        children: [
+          _sectionHeader('Your Playlists'),
+          _playlistsGrid(player),
+        ],
+      );
+
+  Widget _albumsTabView(PlayerProvider player) => ListView(
+        physics: const BouncingScrollPhysics(),
+        children: [
+          _sectionHeader('Recent Albums'),
+          _albumsGrid(player),
+        ],
+      );
+
+  Widget _artistsTabView(PlayerProvider player) => ListView(
+        padding: const EdgeInsets.all(20),
+        physics: const BouncingScrollPhysics(),
+        children: [
+          const Text('Top Artists',
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(height: 20),
+          ...player.topArtists.map((name) => ListTile(
+                contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                leading: CircleAvatar(
+                  backgroundColor: const Color(0xFF1A1A2E),
+                  radius: 30,
+                  backgroundImage: const NetworkImage(
+                      'https://music.youtube.com/img/artist_placeholder.png'),
+                ),
+                title: Text(name,
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold)),
+                subtitle: const Text('Top Artist',
+                    style: TextStyle(color: Colors.white38)),
+                trailing: const Icon(Icons.arrow_forward_ios_rounded,
+                    color: Colors.white24, size: 16),
+              )),
+        ],
+      );
+
+  Widget _downloadsTabView(PlayerProvider player) {
+    final downloads = player.getDownloadedSongs();
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      physics: const BouncingScrollPhysics(),
+      itemCount: downloads.length,
+      itemBuilder: (_, i) => _SongTile(song: downloads[i], player: player),
+    );
+  }
+
+  // Grid/List Helpers
+  Widget _playlistsGrid(PlayerProvider player) {
+    if (player.homePlaylists.isEmpty) return _placeholderRow();
+    final playlists = player.homePlaylists.values.first;
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(16),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          mainAxisSpacing: 16,
+          crossAxisSpacing: 16,
+          childAspectRatio: 0.8),
+      itemCount: playlists.length,
+      itemBuilder: (_, i) {
+        final p = playlists[i];
+        return _playlistItem(p, player);
+      },
+    );
+  }
+
+  Widget _albumsGrid(PlayerProvider player) {
+    if (player.homePlaylists.length < 2) return _placeholderRow();
+    final albums = player.homePlaylists.values.elementAt(1);
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(16),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          mainAxisSpacing: 16,
+          crossAxisSpacing: 16,
+          childAspectRatio: 0.8),
+      itemCount: albums.length,
+      itemBuilder: (_, i) {
+        final a = albums[i];
+        return _playlistItem(a, player);
+      },
+    );
+  }
+
+  Widget _playlistItem(PlaylistResult p, PlayerProvider player) =>
+      GestureDetector(
+        onTap: () => player.fetchPlaylistContent(p.id),
+        onLongPress: () => _showPlaylistOptions(p.title),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: CachedNetworkImage(
+                imageUrl: p.thumbnail,
+                fit: BoxFit.cover,
+                width: double.infinity,
+                errorWidget: (_, __, ___) => Container(
+                    color: const Color(0xFF1A1A2E),
+                    child:
+                        const Icon(Icons.queue_music, color: Colors.white24)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(p.title,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
+          Text(p.owner,
+              style: const TextStyle(color: Colors.white38, fontSize: 10)),
+        ]),
+      );
+
+  Widget _quickPicksView(PlayerProvider player) => Column(
+        children: player.quickPicks
+            .take(5)
+            .map((s) => _SongTile(song: s, player: player))
+            .toList(),
+      );
+
   Widget _statsGrid(PlayerProvider player) {
     final stats = [
       {
@@ -207,13 +376,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             decoration: BoxDecoration(
                 color: const Color(0xFF1A1A2E),
                 borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.white.withOpacity(0.05)),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.black26,
-                      blurRadius: 10,
-                      offset: const Offset(0, 5))
-                ]),
+                border: Border.all(color: Colors.white.withOpacity(0.05))),
             padding: const EdgeInsets.all(18),
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -269,67 +432,46 @@ class _LibraryScreenState extends State<LibraryScreen>
           return GestureDetector(
             onTap: () => player.playTrack(song),
             child: Container(
-              width: 140,
+              width: 110,
               margin: const EdgeInsets.only(right: 14),
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     ClipRRect(
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(12),
                       child: Stack(children: [
                         CachedNetworkImage(
                             imageUrl: song.artUri?.toString() ?? '',
-                            width: 140,
-                            height: 140,
-                            fit: BoxFit.cover,
-                            placeholder: (_, __) => Container(
-                                color: Colors.white.withOpacity(0.05)),
-                            errorWidget: (_, __, ___) => Container(
-                                color: Colors.white.withOpacity(0.1))),
+                            width: 110,
+                            height: 110,
+                            fit: BoxFit.cover),
                         Container(
-                            width: 140,
-                            height: 140,
+                            width: 110,
+                            height: 110,
                             decoration: const BoxDecoration(
                                 gradient: LinearGradient(
                                     begin: Alignment.topCenter,
                                     end: Alignment.bottomCenter,
                                     colors: [
                                   Colors.transparent,
-                                  Colors.black54
+                                  Colors.black87
                                 ]))),
-                        Positioned(
-                            bottom: 10,
-                            right: 10,
-                            child: Icon(
-                                player.isDownloaded(song.id)
-                                    ? Icons.download_done_rounded
-                                    : (player.isLiked(song.id)
-                                        ? Icons.favorite_rounded
-                                        : Icons.music_note_rounded),
-                                color: player.isDownloaded(song.id)
-                                    ? const Color(0xFF10B981)
-                                    : (player.isLiked(song.id)
-                                        ? const Color(0xFFEC4899)
-                                        : Colors.white24),
-                                size: 14)),
                       ]),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     Text(song.title,
                         style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
-                            fontSize: 13),
+                            fontSize: 11),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis),
-                    Row(children: [
-                      const Icon(Icons.person_rounded,
-                          color: Color(0xFF8B5CF6), size: 10),
-                      const SizedBox(width: 4),
-                      Text(song.artist ?? 'Unknown Artist',
-                          style: const TextStyle(
-                              color: Colors.white38, fontSize: 10)),
-                    ]),
+                    const SizedBox(height: 2),
+                    Text(song.artist ?? 'Unknown Artist',
+                        style: const TextStyle(
+                            color: Colors.white38, fontSize: 10),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
                   ]),
             ),
           );
@@ -348,10 +490,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         margin: const EdgeInsets.only(right: 14),
         decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
-            gradient: LinearGradient(
-                colors: colors[i % 2],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight)));
+            gradient: LinearGradient(colors: colors[i % 2])));
   }
 
   Widget _sectionHeader(String title) => Padding(
@@ -375,159 +514,24 @@ class _LibraryScreenState extends State<LibraryScreen>
         ]),
       );
 
-  Widget _playlistsRow(PlayerProvider player) {
-    if (player.homePlaylists.isEmpty) return _placeholderRow();
-
-    final playlists = player.homePlaylists.values.first.take(5).toList();
-
-    return SizedBox(
-      height: 180,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: playlists.length,
-        itemBuilder: (_, i) {
-          final p = playlists[i];
-          final accentColor = const [
-            Color(0xFF8B5CF6),
-            Color(0xFFEC4899),
-            Color(0xFF10B981),
-            Color(0xFF3B82F6),
-            Color(0xFFF59E0B)
-          ][i % 5];
-
-          return GestureDetector(
-            onTap: () => player.fetchPlaylistContent(p.id),
-            onLongPress: () => _showPlaylistOptions(p.title),
-            child: Container(
-              width: 150,
-              margin: const EdgeInsets.only(right: 16),
-              decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(24),
-                  gradient: LinearGradient(colors: [
-                    accentColor.withOpacity(0.8),
-                    accentColor.withOpacity(0.4)
-                  ], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                  boxShadow: [
-                    BoxShadow(
-                        color: accentColor.withOpacity(0.2),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4))
-                  ]),
-              padding: const EdgeInsets.all(20),
-              child: Stack(children: [
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: CachedNetworkImage(
-                      imageUrl: p.thumbnail,
-                      width: 40,
-                      height: 40,
-                      fit: BoxFit.cover,
-                      errorWidget: (_, __, ___) => Icon(Icons.queue_music,
-                          color: Colors.white.withOpacity(0.3), size: 30),
-                    ),
-                  ),
-                  const Spacer(),
-                  Text(p.title,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 14),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis),
-                ]),
-                Positioned(
-                    top: 0,
-                    right: 0,
-                    child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(10)),
-                        child: Text(p.owner,
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 8,
-                                fontWeight: FontWeight.bold)))),
-              ]),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
   Widget _placeholderRow() => const SizedBox(
       height: 180,
       child: Center(
           child: Text("Finding your playlists...",
               style: TextStyle(color: Colors.white30))));
 
-  Widget _albumsRow(PlayerProvider player) {
-    if (player.homePlaylists.length < 2) return const SizedBox.shrink();
-
-    // Use the second section of playlists as "Albums/Suggested"
-    final albums = player.homePlaylists.values.elementAt(1).take(5).toList();
-
-    return SizedBox(
-      height: 200,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: albums.length,
-        itemBuilder: (_, i) {
-          final a = albums[i];
-          return GestureDetector(
-            onTap: () => player.fetchPlaylistContent(a.id),
-            child: Container(
-              width: 140,
-              margin: const EdgeInsets.only(right: 14),
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(24),
-                      child: CachedNetworkImage(
-                        imageUrl: a.thumbnail,
-                        width: 140,
-                        height: 140,
-                        fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) => Container(
-                          color: const Color(0xFF1A1A2E),
-                          child: const Center(
-                              child: Icon(Icons.album_rounded,
-                                  color: Colors.white12, size: 60)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(a.title,
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                    Text(a.owner,
-                        style: const TextStyle(
-                            color: Colors.white54, fontSize: 11),
-                        maxLines: 1),
-                  ]),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
   void _handleSeeAll(String title) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('Exploring all $title...'),
-      backgroundColor: const Color(0xFF8B5CF6),
-      behavior: SnackBarBehavior.floating,
-    ));
+    if (title == 'Recently Played' ||
+        title == 'Downloads' ||
+        title == 'Quick Picks') {
+      _showCollection(title, title.toLowerCase());
+    } else if (title == 'Your Playlists') {
+      _tabController.animateTo(1);
+    } else if (title == 'Albums') {
+      _tabController.animateTo(2);
+    } else if (title == 'Recent Albums') {
+      _tabController.animateTo(2);
+    }
   }
 
   void _showPlaylistOptions(String title) {
@@ -572,6 +576,84 @@ class _LibraryScreenState extends State<LibraryScreen>
   }
 }
 
+class _SearchSheet extends StatefulWidget {
+  const _SearchSheet();
+  @override
+  State<_SearchSheet> createState() => _SearchSheetState();
+}
+
+class _SearchSheetState extends State<_SearchSheet> {
+  final TextEditingController _ctrl = TextEditingController();
+  @override
+  Widget build(BuildContext context) {
+    final player = context.watch<PlayerProvider>();
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(children: [
+        const SizedBox(height: 12),
+        Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+                color: Colors.white24, borderRadius: BorderRadius.circular(2))),
+        const SizedBox(height: 24),
+        TextField(
+          controller: _ctrl,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white, fontSize: 18),
+          decoration: InputDecoration(
+            hintText: 'Search songs or artists...',
+            hintStyle: const TextStyle(color: Colors.white38),
+            prefixIcon: const Icon(Icons.search, color: Color(0xFF8B5CF6)),
+            filled: true,
+            fillColor: const Color(0xFF1A1A2E),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide.none),
+          ),
+          onSubmitted: (q) => player.search(q),
+        ),
+        const SizedBox(height: 20),
+        Expanded(
+            child: player.isSearching
+                ? const Center(
+                    child: CircularProgressIndicator(color: Color(0xFF8B5CF6)))
+                : ListView.builder(
+                    itemCount: player.searchResults.length,
+                    itemBuilder: (_, i) {
+                      final s = player.searchResults[i];
+                      return ListTile(
+                        leading: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: CachedNetworkImage(
+                                imageUrl: s.thumbnail,
+                                width: 50,
+                                height: 50,
+                                fit: BoxFit.cover)),
+                        title: Text(s.title,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600),
+                            maxLines: 1),
+                        subtitle: Text(s.artist,
+                            style: const TextStyle(
+                                color: Colors.white54, fontSize: 12)),
+                        trailing: const Icon(Icons.play_circle_fill,
+                            color: Color(0xFF8B5CF6)),
+                        onTap: () {
+                          Navigator.pop(context);
+                          player.playSong(s);
+                        },
+                      );
+                    },
+                  )),
+      ]),
+    );
+  }
+}
+
 class _CollectionModal extends StatelessWidget {
   final String title;
   const _CollectionModal({required this.title});
@@ -594,6 +676,8 @@ class _CollectionModal extends StatelessWidget {
                 thumbnail: m.artUri?.toString() ?? '',
               ))
           .toList();
+    } else if (title == 'Quick Picks') {
+      songs = player.quickPicks;
     } else {
       songs = player.recentlyPlayed
           .map((m) => SongResult(

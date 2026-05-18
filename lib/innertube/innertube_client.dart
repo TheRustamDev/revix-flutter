@@ -484,6 +484,88 @@ class InnerTubeClient {
       return {};
     }
   }
+
+  Future<List<LyricLine>> getTimedLyrics(String videoId) async {
+    try {
+      // Step 1: get lyrics browseId from next endpoint
+      final nextRes = await _dio
+          .post(
+            '/next?key=$_apiKey&prettyPrint=false',
+            data: jsonEncode({
+              "context": _context,
+              "videoId": videoId,
+              "isAudioOnly": true,
+            }),
+          )
+          .timeout(const Duration(seconds: 8));
+
+      String? lyricsToken;
+      try {
+        final tabs = nextRes.data['contents']
+                ['singleColumnMusicWatchNextResultsRenderer']['tabbedRenderer']
+            ['watchNextTabbedResultsRenderer']['tabs'];
+        for (var tab in tabs) {
+          final tabContent = tab['tabRenderer'];
+          if (tabContent?['title'] == 'Lyrics') {
+            lyricsToken = tabContent['endpoint']['browseEndpoint']['browseId'];
+            break;
+          }
+        }
+      } catch (_) {}
+
+      if (lyricsToken == null) return [];
+
+      // Step 2: fetch lyrics content
+      final lyricsRes = await _dio
+          .post(
+            '/browse?key=$_apiKey&prettyPrint=false',
+            data: jsonEncode({
+              "context": _context,
+              "browseId": lyricsToken,
+            }),
+          )
+          .timeout(const Duration(seconds: 8));
+
+      final List<LyricLine> lines = [];
+      try {
+        final contents =
+            lyricsRes.data['contents']['sectionListRenderer']['contents'];
+        for (var section in contents) {
+          final lyricsData = section['musicDescriptionShelfRenderer'];
+          if (lyricsData != null) {
+            final text = lyricsData['description']?['runs']
+                    ?.map((r) => r['text'])
+                    ?.join('') ??
+                '';
+            if (text.isNotEmpty) {
+              // Plain lyrics — split into lines with estimated timing
+              final rawLines =
+                  text.split('\n').where((l) => l.trim().isNotEmpty).toList();
+              for (int i = 0; i < rawLines.length; i++) {
+                lines.add(LyricLine(
+                  text: rawLines[i].trim(),
+                  // Estimate: assume avg 3 seconds per line
+                  startMs: i * 3000,
+                ));
+              }
+            }
+          }
+        }
+      } catch (e) {
+        print('Lyrics parse: $e');
+      }
+      return lines;
+    } catch (e) {
+      print('Lyrics fetch error: $e');
+      return [];
+    }
+  }
+}
+
+class LyricLine {
+  final String text;
+  final int startMs; // milliseconds
+  const LyricLine({required this.text, required this.startMs});
 }
 
 class SongResult {
