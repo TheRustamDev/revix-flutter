@@ -1,0 +1,1628 @@
+import 'dart:math';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
+import '../providers/player_provider.dart';
+import '../providers/theme_provider.dart';
+import '../innertube/innertube_client.dart';
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+  @override
+  State<HomeScreen> createState() => HomeScreenState();
+}
+
+class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
+  int _selectedMood = 0;
+  late AnimationController _ringController;
+  late AnimationController _waveController;
+  final ScrollController scrollController = ScrollController();
+
+  void scrollToTop() {
+    if (scrollController.hasClients) {
+      scrollController.animateTo(0,
+          duration: const Duration(milliseconds: 600), curve: Curves.easeOut);
+    }
+  }
+
+  final List<Map<String, String>> _moods = [
+    {'label': 'All'},
+    {'label': 'Moods'},
+    {'label': 'Workout'},
+    {'label': 'Focus'},
+    {'label': 'Chill'},
+    {'label': 'Party'},
+  ];
+
+  final List<Map<String, dynamic>> _madeForYou = [
+    {
+      'title': 'Daily Pulse',
+      'subtitle': 'Your daily mix of new hits',
+      'c1': const Color(0xFF2D0A4E),
+      'c2': const Color(0xFF1A0A2E),
+      'accent': const Color(0xFFEC4899),
+      'query': 'top hits 2024',
+      'type': 'wave'
+    },
+    {
+      'title': 'Late Night',
+      'subtitle': 'Vibes for your midnight soul',
+      'c1': const Color(0xFF0A0A2E),
+      'c2': const Color(0xFF0A0A18),
+      'accent': Colors.white,
+      'query': 'late night lofi',
+      'type': 'orb'
+    },
+    {
+      'title': 'Punjabi',
+      'subtitle': 'The finest from Punjab',
+      'c1': const Color(0xFF1A0A00),
+      'c2': const Color(0xFF2A1500),
+      'accent': const Color(0xFFEC4899),
+      'query': 'punjabi hits 2024',
+      'type': 'khanda'
+    },
+    {
+      'title': 'Romance',
+      'subtitle': 'For the romantic soul',
+      'c1': const Color(0xFF2A0A1A),
+      'c2': const Color(0xFF1A0510),
+      'accent': const Color(0xFFEC4899),
+      'query': 'romantic hindi songs',
+      'type': 'heart'
+    },
+  ];
+
+  String get _greeting {
+    final h = DateTime.now().hour;
+    if (h < 12) return 'GOOD MORNING';
+    if (h < 17) return 'GOOD AFTERNOON';
+    return 'GOOD EVENING';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _ringController =
+        AnimationController(vsync: this, duration: const Duration(seconds: 4));
+    _waveController = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 600))
+      ..repeat(reverse: true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final player = context.read<PlayerProvider>();
+      player.search('top hindi songs 2024');
+      player.fetchHomeSections();
+    });
+  }
+
+  @override
+  void dispose() {
+    _ringController.dispose();
+    _waveController.dispose();
+    super.dispose();
+  }
+
+  void _openPlaylistModal(PlaylistResult playlist) {
+    final player = context.read<PlayerProvider>();
+    player.fetchPlaylistContent(playlist.id);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF0D0D1A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      ),
+      builder: (_) => _PlaylistModal(player: player, title: playlist.title),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+    ));
+    final player = context.watch<PlayerProvider>();
+    return Consumer<ThemeProvider>(builder: (context, theme, _) {
+      return Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Container(
+          decoration: BoxDecoration(gradient: theme.bg),
+          child: SafeArea(
+            bottom: false,
+            child: RefreshIndicator(
+              color: const Color(0xFF8B5CF6),
+              backgroundColor: const Color(0xFF1A1A2E),
+              onRefresh: () async {
+                final p = context.read<PlayerProvider>();
+                final pool = [
+                  'top bollywood 2024',
+                  'best punjabi hits',
+                  'trending indie songs',
+                  'arijit singh hits',
+                  'ap dhillon new songs',
+                  'lofi chill beats',
+                  'shubh latest songs',
+                  'diljit dosanjh mix',
+                  'best of weeknd',
+                  'global top 50'
+                ];
+                pool.shuffle();
+                p.search(pool.first);
+                await p.fetchHomeSections();
+              },
+              child: CustomScrollView(
+                controller: scrollController,
+                physics: const AlwaysScrollableScrollPhysics(
+                    parent: BouncingScrollPhysics()),
+                slivers: [
+                  SliverToBoxAdapter(child: _topBar()),
+                  SliverToBoxAdapter(child: _heroRow(player)),
+                  SliverToBoxAdapter(child: _moodChips(player)),
+                  SliverToBoxAdapter(child: _sectionHeader('Recently Played')),
+                  SliverToBoxAdapter(child: _recentlyPlayed(player)),
+                  SliverToBoxAdapter(child: _sectionHeader('Made For You')),
+                  SliverToBoxAdapter(child: _madeForYouRow(player)),
+
+                  // New Dynamic Sections
+                  if (player.homePlaylists.containsKey('Top Charts')) ...[
+                    SliverToBoxAdapter(child: _sectionHeader('Top Charts')),
+                    SliverToBoxAdapter(
+                        child: _playlistSection(player, 'Top Charts')),
+                  ],
+                  if (player.homePlaylists.containsKey('Global Hits')) ...[
+                    SliverToBoxAdapter(child: _sectionHeader('Global Hits')),
+                    SliverToBoxAdapter(
+                        child: _playlistSection(player, 'Global Hits')),
+                  ],
+                  if (player.homeSections.containsKey('Winner Energy')) ...[
+                    SliverToBoxAdapter(child: _sectionHeader('Winner Energy')),
+                    SliverToBoxAdapter(
+                        child: _dynamicSection(player, 'Winner Energy')),
+                  ],
+                  if (player.homeSections.containsKey('Bollywood Party')) ...[
+                    SliverToBoxAdapter(
+                        child: _sectionHeader('Bollywood Party')),
+                    SliverToBoxAdapter(
+                        child: _dynamicSection(player, 'Bollywood Party')),
+                  ],
+                  if (player.homeSections.containsKey('Bollywood Fire')) ...[
+                    SliverToBoxAdapter(child: _sectionHeader('Bollywood Fire')),
+                    SliverToBoxAdapter(
+                        child: _dynamicSection(player, 'Bollywood Fire')),
+                  ],
+                  if (player.homePlaylists.containsKey('iPop India')) ...[
+                    SliverToBoxAdapter(child: _sectionHeader('iPop India')),
+                    SliverToBoxAdapter(
+                        child: _playlistSection(player, 'iPop India')),
+                  ],
+                  if (player.homeSections.containsKey('Instagram Hits')) ...[
+                    SliverToBoxAdapter(
+                        child: _sectionHeader('Trending Instagram')),
+                    SliverToBoxAdapter(
+                        child: _dynamicSection(player, 'Instagram Hits')),
+                  ],
+                  if (player.homeSections.containsKey('Mashups')) ...[
+                    SliverToBoxAdapter(
+                        child: _sectionHeader('Bollywood Mashups')),
+                    SliverToBoxAdapter(
+                        child: _dynamicSection(player, 'Mashups')),
+                  ],
+                  if (player.homeSections.containsKey('Haryanvi Party')) ...[
+                    SliverToBoxAdapter(child: _sectionHeader('Haryanvi Hits')),
+                    SliverToBoxAdapter(
+                        child: _dynamicSection(player, 'Haryanvi Party')),
+                  ],
+                  if (player.homeSections.containsKey('Tollywood')) ...[
+                    SliverToBoxAdapter(
+                        child: _sectionHeader('Tollywood Top Hits')),
+                    SliverToBoxAdapter(
+                        child: _dynamicSection(player, 'Tollywood')),
+                  ],
+                  if (player.homeSections.containsKey('Mollywood')) ...[
+                    SliverToBoxAdapter(child: _sectionHeader('Mollywood Hits')),
+                    SliverToBoxAdapter(
+                        child: _dynamicSection(player, 'Mollywood')),
+                  ],
+                  if (player.homeSections.containsKey('Lofi India')) ...[
+                    SliverToBoxAdapter(child: _sectionHeader('Indian Lofi')),
+                    SliverToBoxAdapter(
+                        child: _dynamicSection(player, 'Lofi India')),
+                  ],
+
+                  SliverToBoxAdapter(child: _sectionHeader('Quick Picks')),
+                  SliverToBoxAdapter(child: _quickPicks(player)),
+                  const SliverToBoxAdapter(child: SizedBox(height: 180)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  Widget _topBar() => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+        child: Row(children: [
+          GestureDetector(
+            onTap: () {
+              scrollToTop();
+              context.read<PlayerProvider>().refreshHomeRecommendations();
+            },
+            onLongPress: () => _showDevInfo(),
+            child: Image.asset(
+              'assets/images/revix.official.png',
+              height: 28,
+              fit: BoxFit.contain,
+            ),
+          ),
+          const Spacer(),
+          _circleBtn(Icons.search_rounded, onTap: () => _showSearchSheet()),
+          const SizedBox(width: 10),
+          _topMenu(),
+        ]),
+      );
+
+  Widget _topMenu() => PopupMenuButton<String>(
+        onSelected: (v) => _handleMenu(v),
+        icon: _circleBtn(Icons.more_vert_rounded),
+        padding: EdgeInsets.zero,
+        offset: const Offset(0, 50),
+        color: const Color(0xFF1A1A2E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        itemBuilder: (_) => [
+          _menuItem('Settings', Icons.settings_rounded),
+          _menuItem('Sleep Timer', Icons.timer_rounded),
+          _menuItem('Downloads', Icons.download_done_rounded),
+          _menuItem('Equalizer', Icons.graphic_eq_rounded),
+          _menuItem('App Info', Icons.info_outline_rounded),
+        ],
+      );
+
+  PopupMenuItem<String> _menuItem(String title, IconData icon) =>
+      PopupMenuItem<String>(
+        value: title,
+        child: Row(children: [
+          Icon(icon, color: Colors.white70, size: 18),
+          const SizedBox(width: 12),
+          Text(title,
+              style: const TextStyle(color: Colors.white, fontSize: 13)),
+        ]),
+      );
+
+  void _handleMenu(String v) {
+    switch (v) {
+      case 'Settings':
+        _showSettingsSheet();
+        break;
+      case 'Sleep Timer':
+        _showSleepTimerSheet();
+        break;
+      case 'Downloads':
+        _showDownloadsSheet(context.read<PlayerProvider>());
+        break;
+      case 'Equalizer':
+        _showEqualizerSheet();
+        break;
+      case 'App Info':
+        _showDevInfo();
+        break;
+    }
+  }
+
+  void _showSettingsSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0D0D1A),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (_) => StatefulBuilder(builder: (ctx, setSheetState) {
+        return Container(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                  child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(2)))),
+              const SizedBox(height: 20),
+              const Text('Settings',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold)),
+              const SizedBox(height: 24),
+              _settingsTile('Audio Quality', Icons.high_quality_rounded,
+                  trailing: DropdownButton<String>(
+                    dropdownColor: const Color(0xFF1A1A2E),
+                    value: context.watch<PlayerProvider>().audioQuality,
+                    style: const TextStyle(color: Colors.white),
+                    underline: const SizedBox(),
+                    items: ['Normal', 'High', 'Lossless']
+                        .map((e) => DropdownMenuItem(
+                            value: e,
+                            child: Text(e,
+                                style: const TextStyle(color: Colors.white))))
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null)
+                        context.read<PlayerProvider>().setAudioQuality(v);
+                    },
+                  )),
+              _settingsTile('Auto-Play', Icons.play_arrow_rounded,
+                  trailing: Switch(
+                    value: context.watch<PlayerProvider>().autoPlay,
+                    onChanged: (v) =>
+                        context.read<PlayerProvider>().setAutoPlay(v),
+                    activeColor: const Color(0xFF8B5CF6),
+                  )),
+              _settingsTile('Equalizer', Icons.graphic_eq_rounded, onTap: () {
+                Navigator.pop(context);
+                _showEqualizerSheet();
+              }),
+              _settingsTile('Notifications', Icons.notifications_rounded,
+                  trailing: Switch(
+                    value: true,
+                    onChanged: (_) {},
+                    activeColor: const Color(0xFF8B5CF6),
+                  )),
+              _settingsTile('Clear Cache', Icons.cleaning_services_rounded,
+                  onTap: () {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Cache cleared'),
+                    backgroundColor: Color(0xFF8B5CF6)));
+              }),
+            ],
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _settingsTile(String label, IconData icon,
+      {Widget? trailing, VoidCallback? onTap}) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon, color: const Color(0xFF8B5CF6), size: 22),
+      title: Text(label,
+          style: const TextStyle(color: Colors.white, fontSize: 15)),
+      trailing:
+          trailing ?? const Icon(Icons.chevron_right, color: Colors.white38),
+      onTap: onTap,
+    );
+  }
+
+  void _showSleepTimerSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0D0D1A),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+                child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2)))),
+            const SizedBox(height: 20),
+            const Text('Sleep Timer',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text('Music stops automatically after selected time.',
+                style: TextStyle(color: Colors.white54, fontSize: 13)),
+            const SizedBox(height: 24),
+            ...[
+              '15 minutes',
+              '30 minutes',
+              '45 minutes',
+              '60 minutes',
+              'End of song'
+            ].map((t) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.timer_outlined,
+                      color: Color(0xFF8B5CF6), size: 22),
+                  title: Text(t,
+                      style:
+                          const TextStyle(color: Colors.white, fontSize: 15)),
+                  trailing:
+                      const Icon(Icons.chevron_right, color: Colors.white24),
+                  onTap: () {
+                    final mins = int.tryParse(t.split(' ')[0]) ?? 0;
+                    if (mins > 0) {
+                      context
+                          .read<PlayerProvider>()
+                          .setSleepTimer(Duration(minutes: mins));
+                    }
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text('Sleep timer set for $t'),
+                        backgroundColor: const Color(0xFF8B5CF6)));
+                  },
+                )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDownloadsSheet(PlayerProvider player) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0D0D1A),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (_) => Container(
+        height: MediaQuery.of(context).size.height * 0.7,
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+                child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2)))),
+            const SizedBox(height: 20),
+            const Text('Local Downloads',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text('All offline content is stored securely on your device.',
+                style: TextStyle(color: Colors.white38, fontSize: 13)),
+            const SizedBox(height: 24),
+            Expanded(
+              child: player.downloadedSongs.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.download_done_rounded,
+                              color: Colors.white.withOpacity(0.05), size: 100),
+                          const SizedBox(height: 16),
+                          const Text('Nothing downloaded yet',
+                              style: TextStyle(
+                                  color: Colors.white24,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: player.downloadedSongs.length,
+                      itemBuilder: (ctx, i) {
+                        final s = player.downloadedSongs[i];
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: CachedNetworkImage(
+                                  imageUrl: s.artUri.toString(),
+                                  width: 48,
+                                  height: 48,
+                                  fit: BoxFit.cover)),
+                          title: Text(s.title,
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14)),
+                          subtitle: Text(s.artist ?? 'REVIX One',
+                              style: const TextStyle(
+                                  color: Colors.white54, fontSize: 11)),
+                          trailing: const Icon(Icons.download_done_rounded,
+                              color: Color(0xFF10B981), size: 20),
+                          onTap: () => player.playTrack(s),
+                        );
+                      }),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showEqualizerSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0D0D1A),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (_) => StatefulBuilder(builder: (ctx, setS) {
+        double bass = 0, mid = 0, treble = 0;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                  child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(2)))),
+              const SizedBox(height: 20),
+              const Text('Equalizer',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold)),
+              const SizedBox(height: 24),
+              _eqSlider('Bass', bass, (v) => setS(() => bass = v)),
+              _eqSlider('Mid', mid, (v) => setS(() => mid = v)),
+              _eqSlider('Treble', treble, (v) => setS(() => treble = v)),
+              const SizedBox(height: 16),
+              Row(children: [
+                Expanded(
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.white24),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12))),
+                    onPressed: () => setS(() => bass = mid = treble = 0),
+                    child: const Text('Reset',
+                        style: TextStyle(color: Colors.white54)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF8B5CF6),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12))),
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Apply',
+                        style: TextStyle(color: Colors.white)),
+                  ),
+                ),
+              ]),
+            ],
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _eqSlider(String label, double value, ValueChanged<double> onChange) =>
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(label,
+                  style: const TextStyle(color: Colors.white70, fontSize: 14)),
+              Text('${value.toStringAsFixed(1)} dB',
+                  style:
+                      const TextStyle(color: Color(0xFF8B5CF6), fontSize: 13)),
+            ],
+          ),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+                activeTrackColor: const Color(0xFF8B5CF6),
+                thumbColor: const Color(0xFFEC4899),
+                inactiveTrackColor: Colors.white12,
+                trackHeight: 3),
+            child: Slider(min: -10, max: 10, value: value, onChanged: onChange),
+          ),
+        ],
+      );
+
+  Widget _circleBtn(IconData icon, {VoidCallback? onTap}) => Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: const Color(0xFF1A1A2E),
+            border: Border.all(color: Colors.white12, width: 0.5)),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(21),
+            child: Icon(icon, color: Colors.white, size: 20),
+          ),
+        ),
+      );
+
+  Widget _heroRow(PlayerProvider player) {
+    final songs = player.searchResults;
+    final featured = songs.isNotEmpty ? songs[0] : null;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(
+            flex: 55,
+            child: GestureDetector(
+              onTap: featured != null ? () => player.playSong(featured) : null,
+              child: Container(
+                height: 230,
+                decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                    color: const Color(0xFF1A0A2E)),
+                clipBehavior: Clip.hardEdge,
+                child: Stack(fit: StackFit.expand, children: [
+                  if (featured != null && featured.thumbnail.isNotEmpty)
+                    CachedNetworkImage(
+                        imageUrl: featured.thumbnail, fit: BoxFit.cover)
+                  else
+                    Container(
+                        decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                                colors: [Color(0xFF8B5CF6), Color(0xFFEC4899)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight))),
+                  Container(
+                      decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Colors.transparent, Colors.black],
+                              stops: [0.35, 1.0]))),
+                  Positioned(
+                      bottom: 48,
+                      left: 12,
+                      right: 48,
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                                player.sleepTimerRemaining > 0
+                                    ? 'OFF IN ${player.sleepTimerRemaining ~/ 60}m'
+                                    : 'NEW MIX',
+                                style: const TextStyle(
+                                    color: Colors.white60,
+                                    fontSize: 9,
+                                    letterSpacing: 2,
+                                    fontWeight: FontWeight.w700)),
+                            const SizedBox(height: 2),
+                            Text(featured?.title ?? 'Loading...',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis),
+                            Text(featured?.artist ?? '',
+                                style: const TextStyle(
+                                    color: Colors.white60, fontSize: 11),
+                                maxLines: 1),
+                          ])),
+                  Positioned(
+                    bottom: 12,
+                    left: 12,
+                    right: 48,
+                    child: AnimatedBuilder(
+                        animation: _waveController,
+                        builder: (_, __) => Row(
+                                children: List.generate(20, (i) {
+                              final h = (sin((i * 0.5) +
+                                              _waveController.value * pi * 2) *
+                                          6 +
+                                      8)
+                                  .abs();
+                              return Container(
+                                  width: 2,
+                                  height: h,
+                                  margin:
+                                      const EdgeInsets.symmetric(horizontal: 1),
+                                  decoration: BoxDecoration(
+                                      color: i < 8
+                                          ? const Color(0xFFEC4899)
+                                          : Colors.white24,
+                                      borderRadius: BorderRadius.circular(2)));
+                            }))),
+                  ),
+                  Positioned(
+                      bottom: 12,
+                      right: 12,
+                      child: GestureDetector(
+                        onTap: featured != null
+                            ? () => player.togglePlayPause()
+                            : null,
+                        child: Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                  color: const Color(0xFFEC4899), width: 2),
+                              color: Colors.black26),
+                          child: Icon(
+                              player.isPlaying &&
+                                      player.currentSong?.id == featured?.id
+                                  ? Icons.pause_rounded
+                                  : Icons.play_arrow_rounded,
+                              color: Colors.white,
+                              size: 20),
+                        ),
+                      )),
+                ]),
+              ),
+            )),
+        const SizedBox(width: 10),
+        Expanded(
+            flex: 45,
+            child: Container(
+              height: 230,
+              decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  color: const Color(0xFF0D0D1A),
+                  border: Border.all(color: Colors.white10, width: 0.5)),
+              child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    AnimatedBuilder(
+                        animation: _ringController,
+                        builder: (_, __) => CustomPaint(
+                            size: const Size(100, 100),
+                            painter: _RingPainter(_ringController.value))),
+                    const SizedBox(height: 10),
+                    Text(_greeting,
+                        style: const TextStyle(
+                            color: Colors.white38,
+                            fontSize: 9,
+                            letterSpacing: 2,
+                            fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    const Text('Melophile',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 2),
+                    Text("Let's vibe with\nsomething epic.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.45),
+                            fontSize: 10)),
+                    const SizedBox(height: 10),
+                    GestureDetector(
+                        onTap: () {
+                          final queries = [
+                            'arijit singh',
+                            'punjabi 2024',
+                            'lofi chill',
+                            'ap dhillon',
+                            'shubh songs',
+                            'weeknd hits'
+                          ];
+                          context.read<PlayerProvider>().search(
+                              queries[Random().nextInt(queries.length)]);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 7),
+                          decoration: BoxDecoration(
+                              color: const Color(0xFF1A1A2E),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: Colors.white12)),
+                          child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.auto_awesome,
+                                    color: Color(0xFFFFD700), size: 13),
+                                SizedBox(width: 5),
+                                Text('Surprise Me',
+                                    style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600)),
+                              ]),
+                        )),
+                  ]),
+            )),
+      ]),
+    );
+  }
+
+  Widget _moodChips(PlayerProvider player) => SizedBox(
+        height: 42,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          itemCount: _moods.length,
+          itemBuilder: (_, i) {
+            final selected = i == _selectedMood;
+            return GestureDetector(
+              onTap: () {
+                setState(() => _selectedMood = i);
+                final queries = [
+                  'top hits 2024',
+                  'mood songs',
+                  'workout music',
+                  'focus music',
+                  'chill vibes',
+                  'party songs'
+                ];
+                context.read<PlayerProvider>().search(queries[i]);
+              },
+              child: Container(
+                margin: const EdgeInsets.only(right: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  gradient: selected
+                      ? const LinearGradient(
+                          colors: [Color(0xFF8B5CF6), Color(0xFFEC4899)])
+                      : null,
+                  color: selected ? null : const Color(0xFF1A1A2E),
+                  border: Border.all(
+                      color: selected ? Colors.transparent : Colors.white24,
+                      width: 0.5),
+                ),
+                child: Text(_moods[i]['label']!,
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w400)),
+              ),
+            );
+          },
+        ),
+      );
+
+  Widget _sectionHeader(String title) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+        child: Row(children: [
+          Text(title,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800)),
+          const Spacer(),
+          GestureDetector(
+            onTap: () => _handleSeeAll(title),
+            child: const Text('See All  ›',
+                style: TextStyle(color: Color(0xFF8B5CF6), fontSize: 13)),
+          ),
+        ]),
+      );
+
+  Widget _recentlyPlayed(PlayerProvider player) {
+    final items = player.recentlyPlayed;
+    if (items.isEmpty) {
+      return SizedBox(
+        height: 160,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          itemCount:
+              player.searchResults.length > 5 ? 5 : player.searchResults.length,
+          itemBuilder: (_, i) {
+            final s = player.searchResults[i];
+            return GestureDetector(
+                onTap: () => player.playSong(s),
+                onLongPress: () =>
+                    _showTrackOptionsMenu(context, s.title, s.artist),
+                child: _recentCard(s.thumbnail, s.title, s.artist));
+          },
+        ),
+      );
+    }
+    return SizedBox(
+      height: 160,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: items.length,
+        itemBuilder: (_, i) => GestureDetector(
+          onTap: () => player.playSong(SongResult(
+              id: items[i].id,
+              title: items[i].title,
+              artist: items[i].artist ?? '',
+              thumbnail: items[i].artUri?.toString() ?? '')),
+          onLongPress: () => _showTrackOptionsMenu(
+              context, items[i].title, items[i].artist ?? ''),
+          child: _recentCard(items[i].artUri?.toString() ?? '', items[i].title,
+              items[i].artist ?? ''),
+        ),
+      ),
+    );
+  }
+
+  Widget _recentCard(String thumb, String title, String artist) => Container(
+        width: 120,
+        margin: const EdgeInsets.only(right: 12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: 120,
+            height: 120,
+            decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                color: const Color(0xFF1A1A2E)),
+            clipBehavior: Clip.hardEdge,
+            child: thumb.isNotEmpty
+                ? CachedNetworkImage(imageUrl: thumb, fit: BoxFit.cover)
+                : Container(
+                    decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                            colors: [Color(0xFF8B5CF6), Color(0xFFEC4899)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight))),
+          ),
+          const SizedBox(height: 6),
+          Text(title,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
+          Text(artist,
+              style: const TextStyle(color: Colors.white54, fontSize: 11),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
+        ]),
+      );
+
+  Widget _dynamicSection(PlayerProvider player, String sectionKey) {
+    final items = player.homeSections[sectionKey] ?? [];
+    return SizedBox(
+      height: 190,
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        itemCount: items.length,
+        itemBuilder: (context, i) {
+          final s = items[i];
+          return GestureDetector(
+            onTap: () => player.playSong(s),
+            onLongPress: () =>
+                _showTrackOptionsMenu(context, s.title, s.artist),
+            child: _songCardV2(s),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _playlistSection(PlayerProvider player, String sectionKey) {
+    final items = player.homePlaylists[sectionKey] ?? [];
+    return SizedBox(
+      height: 210,
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        itemCount: items.length,
+        itemBuilder: (context, i) {
+          return _playlistCard(items[i]);
+        },
+      ),
+    );
+  }
+
+  Widget _songCardV2(SongResult song) => Container(
+        width: 140,
+        margin: const EdgeInsets.only(right: 14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: CachedNetworkImage(
+              imageUrl: song.thumbnail,
+              width: 140,
+              height: 140,
+              fit: BoxFit.cover,
+              placeholder: (context, url) =>
+                  Container(color: Colors.white.withOpacity(0.05)),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(song.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700)),
+          Text(song.artist,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white54, fontSize: 11)),
+        ]),
+      );
+
+  Widget _playlistCard(PlaylistResult playlist) => GestureDetector(
+        onTap: () => _openPlaylistModal(playlist),
+        child: Container(
+          width: 160,
+          margin: const EdgeInsets.only(right: 16),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: CachedNetworkImage(
+                    imageUrl: playlist.thumbnail,
+                    width: 160,
+                    height: 160,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                Positioned(
+                  bottom: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.black45,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.playlist_play,
+                        color: Colors.white, size: 16),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(playlist.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800)),
+            Text(playlist.owner,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white38, fontSize: 11)),
+          ]),
+        ),
+      );
+
+  Widget _madeForYouRow(PlayerProvider player) => SizedBox(
+        height: 170,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          itemCount: _madeForYou.length,
+          itemBuilder: (_, i) {
+            final item = _madeForYou[i];
+            return GestureDetector(
+              onTap: () => player.search(item['query']),
+              child: Container(
+                width: 150,
+                margin: const EdgeInsets.only(right: 12),
+                decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    gradient: LinearGradient(
+                        colors: [item['c1'] as Color, item['c2'] as Color],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight)),
+                padding: const EdgeInsets.all(14),
+                child: Stack(children: [
+                  Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(item['title'],
+                            style: TextStyle(
+                                color: item['accent'] as Color,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 4),
+                        Text(item['subtitle'],
+                            style: const TextStyle(
+                                color: Colors.white60, fontSize: 11)),
+                      ]),
+                  Positioned(bottom: 0, left: 0, child: _madeForYouArt(item)),
+                  Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: GestureDetector(
+                        onTap: () => player.search(item['query']),
+                        child: Container(
+                          width: 30,
+                          height: 30,
+                          decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border:
+                                  Border.all(color: Colors.white54, width: 1.5),
+                              color: Colors.black26),
+                          child: const Icon(Icons.play_arrow_rounded,
+                              color: Colors.white, size: 16),
+                        ),
+                      )),
+                ]),
+              ),
+            );
+          },
+        ),
+      );
+
+  Widget _madeForYouArt(Map<String, dynamic> item) {
+    if (item['type'] == 'wave') {
+      return AnimatedBuilder(
+        animation: _waveController,
+        builder: (_, __) => Row(
+          children: List.generate(8, (i) {
+            final h =
+                (sin(i * 0.7 + _waveController.value * pi * 2) * 10 + 14).abs();
+            return Container(
+                width: 3,
+                height: h,
+                margin: const EdgeInsets.symmetric(horizontal: 1),
+                decoration: BoxDecoration(
+                    color: const Color(0xFF8B5CF6).withOpacity(0.7),
+                    borderRadius: BorderRadius.circular(2)));
+          }),
+        ),
+      );
+    }
+    return Container(
+        width: 50,
+        height: 50,
+        decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(
+                colors: [Color(0xFF8B5CF6), Colors.transparent])));
+  }
+
+  Widget _quickPicks(PlayerProvider player) {
+    if (player.isLoading || player.isSearching) {
+      return const SizedBox(
+          height: 200,
+          child: Center(
+              child: CircularProgressIndicator(color: Color(0xFF8B5CF6))));
+    }
+    final results = player.searchResults.take(10).toList();
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      itemCount: results.length,
+      itemBuilder: (_, i) {
+        final s = results[i];
+        final isPlaying = player.currentSong?.id == s.id && player.isPlaying;
+        return GestureDetector(
+          onTap: () => player.playSong(s),
+          onLongPress: () => _showTrackOptionsMenu(context, s.title, s.artist),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                color: const Color(0xFF1A1A2E),
+                border: isPlaying
+                    ? Border.all(color: const Color(0xFF8B5CF6), width: 1)
+                    : Border.all(color: Colors.white10, width: 0.5)),
+            child: Row(children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: s.thumbnail.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl: s.thumbnail,
+                        width: 48,
+                        height: 48,
+                        fit: BoxFit.cover)
+                    : Container(
+                        width: 48,
+                        height: 48,
+                        decoration: const BoxDecoration(
+                            gradient: LinearGradient(colors: [
+                          Color(0xFF8B5CF6),
+                          Color(0xFFEC4899)
+                        ]))),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(s.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              color: isPlaying
+                                  ? const Color(0xFF8B5CF6)
+                                  : Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 2),
+                      Text(s.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Colors.white54, fontSize: 12)),
+                    ]),
+              ),
+              Icon(
+                isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
+                color: isPlaying ? const Color(0xFF8B5CF6) : Colors.white24,
+                size: 30,
+              ),
+            ]),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showSearchSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0D0D1A),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (_) => _SearchSheet(),
+    );
+  }
+
+  void _handleSeeAll(String title) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Viewing all $title coming in next update!'),
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: const Color(0xFF8B5CF6),
+    ));
+  }
+
+  void _showTrackOptionsMenu(
+      BuildContext context, String title, String artist) {
+    final player = context.read<PlayerProvider>();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1A2E),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (_) => Container(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child:
+                      Container(width: 40, height: 40, color: Colors.white10)),
+              title: Text(title,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold)),
+              subtitle: Text(artist,
+                  style: const TextStyle(color: Colors.white54, fontSize: 12)),
+            ),
+            const Divider(color: Colors.white10),
+            _actionItem('Add to Liked', Icons.favorite_border, () {
+              player.toggleLike(player.currentSong);
+              Navigator.pop(context);
+            }),
+            _actionItem('Queue Next', Icons.queue_music_rounded, () {
+              Navigator.pop(context);
+            }),
+            _actionItem('Download', Icons.download_rounded, () {
+              player.downloadTrack(player.currentSong);
+              Navigator.pop(context);
+            }),
+            _actionItem('Share', Icons.share_rounded, () {
+              Navigator.pop(context);
+            }),
+            _actionItem('Remove from History', Icons.delete_outline_rounded,
+                () {
+              Navigator.pop(context);
+            }, isDangerous: true),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDevInfo() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF0D0D1A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFF8B5CF6).withOpacity(0.1)),
+              child: Image.asset('assets/images/revix.official.png',
+                  height: 60,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Icon(
+                      Icons.music_note_rounded,
+                      color: Color(0xFF8B5CF6),
+                      size: 40)),
+            ),
+            const SizedBox(height: 20),
+            const Text('REVIX ONE v3.0.0',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 2)),
+            const SizedBox(height: 10),
+            const Text('The Future of Audio Presence',
+                style: TextStyle(color: Colors.white54, fontSize: 12)),
+            const Divider(color: Colors.white10, height: 40),
+            _devRow('Developer', 'Ayaz Ahmad'),
+            _devRow('UI Designer', 'Antigravity AI'),
+            _devRow('Engine', 'InnerTube Hybrid'),
+            const SizedBox(height: 30),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF8B5CF6),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16))),
+                onPressed: () => Navigator.pop(context),
+                child: const Text('STAY BOLD',
+                    style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _devRow(String k, String v) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(k,
+                style: const TextStyle(color: Colors.white38, fontSize: 11)),
+            Text(v,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold)),
+          ],
+        ),
+      );
+
+  Widget _actionItem(String label, IconData icon, VoidCallback onTap,
+          {bool isDangerous = false}) =>
+      ListTile(
+        leading: Icon(icon,
+            color: isDangerous ? Colors.redAccent : Colors.white70, size: 22),
+        title: Text(label,
+            style: TextStyle(
+                color: isDangerous ? Colors.redAccent : Colors.white,
+                fontSize: 14)),
+        onTap: onTap,
+      );
+}
+
+class _SearchSheet extends StatefulWidget {
+  @override
+  State<_SearchSheet> createState() => _SearchSheetState();
+}
+
+class _SearchSheetState extends State<_SearchSheet> {
+  final TextEditingController _ctrl = TextEditingController();
+  @override
+  Widget build(BuildContext context) {
+    final player = context.watch<PlayerProvider>();
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(children: [
+        const SizedBox(height: 12),
+        Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+                color: Colors.white24, borderRadius: BorderRadius.circular(2))),
+        const SizedBox(height: 24),
+        TextField(
+          controller: _ctrl,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white, fontSize: 18),
+          decoration: InputDecoration(
+            hintText: 'Search songs or artists...',
+            hintStyle: const TextStyle(color: Colors.white38),
+            prefixIcon: const Icon(Icons.search, color: Color(0xFF8B5CF6)),
+            filled: true,
+            fillColor: const Color(0xFF1A1A2E),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide.none),
+          ),
+          onSubmitted: (q) => player.search(q),
+        ),
+        const SizedBox(height: 20),
+        Expanded(
+            child: player.isSearching
+                ? const Center(
+                    child: CircularProgressIndicator(color: Color(0xFF8B5CF6)))
+                : ListView.builder(
+                    itemCount: player.searchResults.length,
+                    itemBuilder: (_, i) {
+                      final s = player.searchResults[i];
+                      return ListTile(
+                        leading: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: CachedNetworkImage(
+                                imageUrl: s.thumbnail,
+                                width: 50,
+                                height: 50,
+                                fit: BoxFit.cover)),
+                        title: Text(s.title,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600),
+                            maxLines: 1),
+                        subtitle: Text(s.artist,
+                            style: const TextStyle(
+                                color: Colors.white54, fontSize: 12)),
+                        trailing: const Icon(Icons.play_circle_fill,
+                            color: Color(0xFF8B5CF6)),
+                        onTap: () {
+                          Navigator.pop(context);
+                          player.playSong(s);
+                        },
+                      );
+                    },
+                  )),
+      ]),
+    );
+  }
+}
+
+class _RingPainter extends CustomPainter {
+  final double progress;
+  _RingPainter(this.progress);
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+
+    // Outer Ring
+    final paint1 = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5;
+    paint1.shader = const SweepGradient(
+      colors: [Color(0xFF8B5CF6), Color(0xFFEC4899), Color(0xFF8B5CF6)],
+    ).createShader(Rect.fromCircle(center: center, radius: size.width / 2));
+    canvas.drawCircle(center, size.width / 2, paint1);
+
+    // Inner Ring (Dual Ring)
+    final paint2 = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    paint2.shader = const SweepGradient(
+      colors: [Color(0xFFEC4899), Color(0xFF8B5CF6), Color(0xFFEC4899)],
+    ).createShader(Rect.fromCircle(center: center, radius: size.width / 2 - 8));
+    canvas.drawCircle(center, size.width / 2 - 8, paint2);
+  }
+
+  @override
+  bool shouldRepaint(_RingPainter old) => false;
+}
+
+class _PlaylistModal extends StatelessWidget {
+  final PlayerProvider player;
+  final String title;
+
+  const _PlaylistModal({required this.player, required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<PlayerProvider>(
+      builder: (ctx, p, _) => Container(
+        height: MediaQuery.of(context).size.height * 0.85,
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+                child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2)))),
+            const SizedBox(height: 20),
+            Text(title,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900)),
+            const SizedBox(height: 4),
+            Text('${p.searchResults.length} songs',
+                style: const TextStyle(color: Colors.white54, fontSize: 13)),
+            const SizedBox(height: 16),
+            Expanded(
+              child: p.isSearching
+                  ? const Center(
+                      child:
+                          CircularProgressIndicator(color: Color(0xFF8B5CF6)))
+                  : p.searchResults.isEmpty
+                      ? const Center(
+                          child: Text('No songs found',
+                              style: TextStyle(
+                                  color: Colors.white38, fontSize: 15)))
+                      : ListView.builder(
+                          padding: EdgeInsets.zero,
+                          itemCount: p.searchResults.length,
+                          itemBuilder: (_, i) {
+                            final s = p.searchResults[i];
+                            final isPlaying =
+                                p.currentSong?.id == s.id && p.isPlaying;
+                            return ListTile(
+                              contentPadding:
+                                  const EdgeInsets.symmetric(vertical: 4),
+                              leading: ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: CachedNetworkImage(
+                                    imageUrl: s.thumbnail,
+                                    width: 50,
+                                    height: 50,
+                                    fit: BoxFit.cover),
+                              ),
+                              title: Text(s.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                      color: isPlaying
+                                          ? const Color(0xFF8B5CF6)
+                                          : Colors.white,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700)),
+                              subtitle: Text(s.artist,
+                                  maxLines: 1,
+                                  style: const TextStyle(
+                                      color: Colors.white54, fontSize: 12)),
+                              trailing: Icon(
+                                  isPlaying
+                                      ? Icons.pause_circle_filled
+                                      : Icons.play_circle_fill,
+                                  color: isPlaying
+                                      ? const Color(0xFF8B5CF6)
+                                      : Colors.white38,
+                                  size: 32),
+                              onTap: () {
+                                p.playSong(s);
+                                Navigator.pop(context);
+                              },
+                            );
+                          },
+                        ),
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
