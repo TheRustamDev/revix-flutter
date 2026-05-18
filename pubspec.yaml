@@ -1,0 +1,16 @@
+name: test_m
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  just_audio: ^0.9.36
+  audio_service: ^0.18.12
+  youtube_explode_dart: ^2.3.0
+  dio: ^5.4.0
+  cached_network_image: ^3.3.1
+  provider: ^6.1.1
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  path_provider: ^2.1.2
