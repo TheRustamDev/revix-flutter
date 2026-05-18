@@ -90,6 +90,58 @@ class InnerTubeClient {
     }
   }
 
+  // Get Lyrics Browse ID
+  Future<String?> getLyricsBrowseId(String videoId) async {
+    try {
+      final response = await _dio.post(
+        '/next?key=$_apiKey&prettyPrint=false',
+        data: jsonEncode({
+          "context": _context,
+          "videoId": videoId,
+          "isAudioOnly": true,
+        }),
+      );
+      final tabs = response.data['contents']
+              ?['singleColumnMusicWatchNextResultsRenderer']?['tabbedRenderer']
+          ?['watchNextTabbedResultsRenderer']?['tabs'];
+      if (tabs == null) return null;
+
+      for (var tab in tabs) {
+        final title =
+            tab['tabRenderer']?['title']?.toString().toLowerCase() ?? '';
+        if (title.contains('lyrics')) {
+          return tab['tabRenderer']?['endpoint']?['browseEndpoint']
+              ?['browseId'];
+        }
+      }
+    } catch (e) {
+      print('getLyricsBrowseId error: $e');
+    }
+    return null;
+  }
+
+  // Get Lyrics Text
+  Future<String?> getLyrics(String browseId) async {
+    try {
+      final response = await _dio.post(
+        '/browse?key=$_apiKey&prettyPrint=false',
+        data: jsonEncode({
+          "context": _context,
+          "browseId": browseId,
+        }),
+      );
+      final contents = response.data['contents']?['sectionListRenderer']
+              ?['contents']?[0]?['musicDescriptionShelfRenderer']
+          ?['description']?['runs'];
+      if (contents == null) return null;
+
+      return (contents as List).map((r) => r['text'] ?? '').join('');
+    } catch (e) {
+      print('getLyrics error: $e');
+    }
+    return null;
+  }
+
   // Search with timestamp to bust cache
   Future<List<SongResult>> freshSearch(String query) async {
     // Use exact same working search logic as original search()
@@ -354,6 +406,82 @@ class InnerTubeClient {
     } catch (e) {
       print('Playlist details error: $e');
       return [];
+    }
+  }
+
+  Future<Map<String, List<dynamic>>> getHomeFeed() async {
+    try {
+      final response = await _dio.post(
+        '/browse?key=$_apiKey&prettyPrint=false',
+        data: jsonEncode({
+          "context": _context,
+          "browseId": "FEmusic_home",
+        }),
+      );
+
+      final Map<String, List<dynamic>> sections = {};
+      try {
+        final sectionList = response.data['contents']
+                ['singleColumnBrowseResultsRenderer']['tabs'][0]['tabRenderer']
+            ['content']['sectionListRenderer']['contents'];
+
+        for (var section in sectionList) {
+          final shelf = section['musicCarouselShelfRenderer'];
+          if (shelf == null) continue;
+
+          final title = shelf['header']
+                      ?['musicCarouselShelfBasicHeaderRenderer']?['title']
+                  ?['runs']?[0]?['text'] ??
+              '';
+          if (title.isEmpty) continue;
+
+          final List<dynamic> items = [];
+          for (var item in shelf['contents']) {
+            final songRenderer = item['musicTwoRowItemRenderer'];
+            if (songRenderer == null) continue;
+
+            final itemTitle = songRenderer['title']?['runs']?[0]?['text'] ?? '';
+            final itemId = songRenderer['navigationEndpoint']?['watchEndpoint']
+                ?['videoId'];
+            final playlistId = songRenderer['navigationEndpoint']
+                ?['browseEndpoint']?['browseId'];
+            final thumb = songRenderer['thumbnail']?['musicThumbnailRenderer']
+                        ?['thumbnail']?['thumbnails']
+                    ?.last?['url'] ??
+                '';
+
+            if (itemTitle.isNotEmpty) {
+              if (itemId != null) {
+                final artist =
+                    songRenderer['subtitle']?['runs']?[0]?['text'] ?? '';
+                items.add(SongResult(
+                    id: itemId,
+                    title: itemTitle,
+                    artist: artist,
+                    thumbnail: thumb));
+              } else if (playlistId != null) {
+                final owner =
+                    songRenderer['subtitle']?['runs']?[0]?['text'] ?? '';
+                items.add(PlaylistResult(
+                    id: playlistId,
+                    title: itemTitle,
+                    owner: owner,
+                    thumbnail: thumb));
+              }
+            }
+          }
+
+          if (items.isNotEmpty) {
+            sections[title] = items;
+          }
+        }
+      } catch (e) {
+        print('Home feed parse error: $e');
+      }
+      return sections;
+    } catch (e) {
+      print('Home feed error: $e');
+      return {};
     }
   }
 }

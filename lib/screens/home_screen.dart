@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import '../providers/player_provider.dart';
 import '../providers/theme_provider.dart';
 import '../innertube/innertube_client.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -105,11 +107,12 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   void _openPlaylistModal(PlaylistResult playlist) {
     final player = context.read<PlayerProvider>();
+    final theme = context.read<ThemeProvider>();
     player.fetchPlaylistContent(playlist.id);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF0D0D1A),
+      backgroundColor: theme.bgColor1,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
       ),
@@ -164,73 +167,15 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   SliverToBoxAdapter(child: _recentlyPlayed(player)),
                   SliverToBoxAdapter(child: _sectionHeader('Made For You')),
                   SliverToBoxAdapter(child: _madeForYouRow(player)),
-
-                  // New Dynamic Sections
-                  if (player.homePlaylists.containsKey('Top Charts')) ...[
-                    SliverToBoxAdapter(child: _sectionHeader('Top Charts')),
+                  for (final entry in player.homePlaylists.entries)
                     SliverToBoxAdapter(
-                        child: _playlistSection(player, 'Top Charts')),
+                      child: _playlistSection(player, entry.key),
+                    ),
+                  for (final entry in player.homeSections.entries) ...[
+                    SliverToBoxAdapter(child: _sectionHeader(entry.key)),
+                    SliverToBoxAdapter(
+                        child: _dynamicSection(player, entry.key)),
                   ],
-                  if (player.homePlaylists.containsKey('Global Hits')) ...[
-                    SliverToBoxAdapter(child: _sectionHeader('Global Hits')),
-                    SliverToBoxAdapter(
-                        child: _playlistSection(player, 'Global Hits')),
-                  ],
-                  if (player.homeSections.containsKey('Winner Energy')) ...[
-                    SliverToBoxAdapter(child: _sectionHeader('Winner Energy')),
-                    SliverToBoxAdapter(
-                        child: _dynamicSection(player, 'Winner Energy')),
-                  ],
-                  if (player.homeSections.containsKey('Bollywood Party')) ...[
-                    SliverToBoxAdapter(
-                        child: _sectionHeader('Bollywood Party')),
-                    SliverToBoxAdapter(
-                        child: _dynamicSection(player, 'Bollywood Party')),
-                  ],
-                  if (player.homeSections.containsKey('Bollywood Fire')) ...[
-                    SliverToBoxAdapter(child: _sectionHeader('Bollywood Fire')),
-                    SliverToBoxAdapter(
-                        child: _dynamicSection(player, 'Bollywood Fire')),
-                  ],
-                  if (player.homePlaylists.containsKey('iPop India')) ...[
-                    SliverToBoxAdapter(child: _sectionHeader('iPop India')),
-                    SliverToBoxAdapter(
-                        child: _playlistSection(player, 'iPop India')),
-                  ],
-                  if (player.homeSections.containsKey('Instagram Hits')) ...[
-                    SliverToBoxAdapter(
-                        child: _sectionHeader('Trending Instagram')),
-                    SliverToBoxAdapter(
-                        child: _dynamicSection(player, 'Instagram Hits')),
-                  ],
-                  if (player.homeSections.containsKey('Mashups')) ...[
-                    SliverToBoxAdapter(
-                        child: _sectionHeader('Bollywood Mashups')),
-                    SliverToBoxAdapter(
-                        child: _dynamicSection(player, 'Mashups')),
-                  ],
-                  if (player.homeSections.containsKey('Haryanvi Party')) ...[
-                    SliverToBoxAdapter(child: _sectionHeader('Haryanvi Hits')),
-                    SliverToBoxAdapter(
-                        child: _dynamicSection(player, 'Haryanvi Party')),
-                  ],
-                  if (player.homeSections.containsKey('Tollywood')) ...[
-                    SliverToBoxAdapter(
-                        child: _sectionHeader('Tollywood Top Hits')),
-                    SliverToBoxAdapter(
-                        child: _dynamicSection(player, 'Tollywood')),
-                  ],
-                  if (player.homeSections.containsKey('Mollywood')) ...[
-                    SliverToBoxAdapter(child: _sectionHeader('Mollywood Hits')),
-                    SliverToBoxAdapter(
-                        child: _dynamicSection(player, 'Mollywood')),
-                  ],
-                  if (player.homeSections.containsKey('Lofi India')) ...[
-                    SliverToBoxAdapter(child: _sectionHeader('Indian Lofi')),
-                    SliverToBoxAdapter(
-                        child: _dynamicSection(player, 'Lofi India')),
-                  ],
-
                   SliverToBoxAdapter(child: _sectionHeader('Quick Picks')),
                   SliverToBoxAdapter(child: _quickPicks(player)),
                   const SliverToBoxAdapter(child: SizedBox(height: 180)),
@@ -313,9 +258,10 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _showSettingsSheet() {
+    final theme = context.read<ThemeProvider>();
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF0D0D1A),
+      backgroundColor: theme.bgColor1,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
@@ -377,9 +323,7 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               _settingsTile('Clear Cache', Icons.cleaning_services_rounded,
                   onTap: () {
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text('Cache cleared'),
-                    backgroundColor: Color(0xFF8B5CF6)));
+                _clearCache();
               }),
             ],
           ),
@@ -402,9 +346,10 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _showSleepTimerSheet() {
+    final theme = context.read<ThemeProvider>();
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF0D0D1A),
+      backgroundColor: theme.bgColor1,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
       builder: (_) => Padding(
@@ -465,9 +410,10 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _showDownloadsSheet(PlayerProvider player) {
+    final theme = context.read<ThemeProvider>();
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF0D0D1A),
+      backgroundColor: theme.bgColor1,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
@@ -545,9 +491,10 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _showEqualizerSheet() {
+    final theme = context.read<ThemeProvider>();
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF0D0D1A),
+      backgroundColor: theme.bgColor1,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
       builder: (_) => StatefulBuilder(builder: (ctx, setS) {
@@ -1268,9 +1215,10 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _showSearchSheet() {
+    final theme = context.read<ThemeProvider>();
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF0D0D1A),
+      backgroundColor: theme.bgColor1,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
@@ -1421,6 +1369,30 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 fontSize: 14)),
         onTap: onTap,
       );
+
+  Future<void> _clearCache() async {
+    try {
+      final cacheDir = await getTemporaryDirectory();
+      if (cacheDir.existsSync()) {
+        cacheDir.deleteSync(recursive: true);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Cache cleared successfully'),
+              backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Failed to clear cache: $e'),
+              backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
 }
 
 class _SearchSheet extends StatefulWidget {

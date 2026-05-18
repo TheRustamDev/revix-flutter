@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:audio_service/audio_service.dart';
 import '../providers/theme_provider.dart';
 import '../providers/player_provider.dart';
+import '../innertube/innertube_client.dart';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({super.key});
@@ -262,17 +263,9 @@ class _PlayerScreenState extends State<PlayerScreen>
                                     ),
                                   ),
                                   const SizedBox(height: 24),
-                                  _vAction(
-                                      Icons.graphic_eq,
-                                      player.audioQuality,
-                                      const Color(0xFF8B5CF6), onTap: () {
-                                    final next = player.audioQuality == 'Normal'
-                                        ? 'High'
-                                        : player.audioQuality == 'High'
-                                            ? 'Lossless'
-                                            : 'Normal';
-                                    player.setAudioQuality(next);
-                                  }),
+                                  _vAction(Icons.auto_awesome_motion,
+                                      'VERSIONS', const Color(0xFF8B5CF6),
+                                      onTap: _showVersionsSheet),
                                   _vAction(
                                       player.isLiked(player.currentSong?.id)
                                           ? Icons.favorite
@@ -737,6 +730,100 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
   }
 
+  void _showVersionsSheet() {
+    final player = context.read<PlayerProvider>();
+    final current = player.currentSong;
+    if (current == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0D0D1A),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (_, scrollCtrl) => FutureBuilder<List<SongResult>>(
+          future: player.getSongVersions(current.title, current.artist ?? ''),
+          builder: (context, snapshot) {
+            final versions = snapshot.data ?? [];
+            final isLoading =
+                snapshot.connectionState == ConnectionState.waiting;
+
+            return Column(
+              children: [
+                const SizedBox(height: 12),
+                Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                        color: Colors.white12,
+                        borderRadius: BorderRadius.circular(2))),
+                Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      const Text('SONG VERSIONS',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 2)),
+                      const SizedBox(height: 4),
+                      Text('Alternative cuts of ${current.title}',
+                          style: const TextStyle(
+                              color: Colors.white38, fontSize: 12)),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: isLoading
+                      ? const Center(
+                          child: CircularProgressIndicator(
+                              color: Color(0xFF8B5CF6)))
+                      : versions.isEmpty
+                          ? const Center(
+                              child: Text('No versions found',
+                                  style: TextStyle(color: Colors.white38)))
+                          : ListView.builder(
+                              controller: scrollCtrl,
+                              itemCount: versions.length,
+                              itemBuilder: (ctx, i) {
+                                final item = versions[i];
+                                return ListTile(
+                                  leading: ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: CachedNetworkImage(
+                                      imageUrl: item.thumbnail,
+                                      width: 48,
+                                      height: 48,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                  title: Text(item.title,
+                                      style:
+                                          const TextStyle(color: Colors.white)),
+                                  subtitle: Text(item.artist,
+                                      style: const TextStyle(
+                                          color: Colors.white38)),
+                                  onTap: () {
+                                    player.playTrack(songToMediaItem(item));
+                                    Navigator.pop(context);
+                                  },
+                                );
+                              },
+                            ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   void _showLyricsView() {
     showModalBottomSheet(
       context: context,
@@ -748,46 +835,49 @@ class _PlayerScreenState extends State<PlayerScreen>
         initialChildSize: 0.7,
         maxChildSize: 0.9,
         expand: false,
-        builder: (_, scrollCtrl) => Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 30),
-          child: Column(
-            children: [
-              const SizedBox(height: 12),
-              Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                      color: Colors.white12,
-                      borderRadius: BorderRadius.circular(2))),
-              const Padding(
-                padding: EdgeInsets.all(20),
-                child: Text('Lyrics',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w900)),
-              ),
-              Expanded(
-                child: ListView(
-                  controller: scrollCtrl,
-                  children: const [
-                    Text(
-                      "Lyircs are currently being synchronized for this track.\n\nREVIX One uses advanced Neural matching to fetch high-quality lyrics from our global database.\n\nCheck back in a few moments.",
+        builder: (_, scrollCtrl) => Consumer<PlayerProvider>(
+          builder: (context, player, _) => Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 30),
+            child: Column(
+              children: [
+                const SizedBox(height: 12),
+                Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                        color: Colors.white12,
+                        borderRadius: BorderRadius.circular(2))),
+                const Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Text('LYRICS',
                       style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 18,
-                          height: 1.6,
-                          fontWeight: FontWeight.w600),
-                      textAlign: TextAlign.center,
-                    ),
-                    SizedBox(height: 40),
-                    Center(
-                        child: CircularProgressIndicator(
-                            color: Color(0xFF8B5CF6))),
-                  ],
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 4)),
                 ),
-              ),
-            ],
+                Expanded(
+                  child: player.isLyricsLoading
+                      ? const Center(
+                          child: CircularProgressIndicator(
+                              color: Color(0xFF8B5CF6)))
+                      : SingleChildScrollView(
+                          controller: scrollCtrl,
+                          padding: const EdgeInsets.only(bottom: 60),
+                          child: Text(
+                            player.lyrics,
+                            style: TextStyle(
+                                color: Colors.white.withOpacity(0.9),
+                                fontSize: 18,
+                                height: 1.8,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0.5),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

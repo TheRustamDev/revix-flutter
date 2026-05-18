@@ -9,6 +9,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../services/music_service.dart';
 import '../innertube/innertube_client.dart';
+import '../innertube/recommendations.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:path/path.dart' as p;
 import 'theme_provider.dart';
 
 MediaItem songToMediaItem(SongResult song) => MediaItem(
@@ -22,6 +25,8 @@ MediaItem songToMediaItem(SongResult song) => MediaItem(
 class PlayerProvider extends ChangeNotifier {
   final MusicHandler _handler;
   final InnerTubeClient _innerTube = InnerTubeClient();
+  final YouTubeMusicRecommendations _recommendations =
+      YouTubeMusicRecommendations();
   final yt_exp.YoutubeExplode _yt = yt_exp.YoutubeExplode();
   final Dio _dio = Dio();
 
@@ -29,6 +34,9 @@ class PlayerProvider extends ChangeNotifier {
   late final StreamSubscription<PlaybackState> _playbackSub;
   late final StreamSubscription<Duration> _positionSub;
   late final StreamSubscription<Duration?> _durationSub;
+
+  final FlutterLocalNotificationsPlugin _notifications =
+      FlutterLocalNotificationsPlugin();
 
   ThemeProvider? _themeProvider;
   void attachTheme(ThemeProvider t) => _themeProvider = t;
@@ -65,6 +73,8 @@ class PlayerProvider extends ChangeNotifier {
   final Set<String> _downloadedIds = {};
   final Map<String, double> downloadProgress = {};
   final Map<String, String> _downloadPaths = {}; // videoId -> localPath
+  final Map<String, Map<String, String>> _downloadedMetadata = {};
+  final Map<String, Map<String, String>> _likedMetadata = {};
 
   // Sleep Timer
   Timer? _sleepTimer;
@@ -88,8 +98,15 @@ class PlayerProvider extends ChangeNotifier {
   int _sessionSeed = 0;
   bool _autoQueuing = false;
 
+  // Lyrics
+  String lyrics = '';
+  bool isLyricsLoading = false;
+
   PlayerProvider(this._handler) {
-    Future.microtask(() => _initTaste()); // Load saved taste profile
+    Future.microtask(() {
+      _initTaste();
+      _initNotifications();
+    });
 
     _mediaItemSub = _handler.mediaItem.listen((item) {
       if (item != null &&
@@ -114,7 +131,8 @@ class PlayerProvider extends ChangeNotifier {
       if (item != null) {
         recentlyPlayed.removeWhere((s) => s.id == item.id);
         recentlyPlayed.insert(0, item);
-        if (recentlyPlayed.length > 20) recentlyPlayed.removeLast();
+        if (recentlyPlayed.length > 50) recentlyPlayed.removeLast();
+        _saveRecent();
 
         // Auto queue when less than 3 songs remaining
         final remaining = queue.length - currentIndex - 1;
@@ -124,6 +142,7 @@ class PlayerProvider extends ChangeNotifier {
           Future.microtask(
               () => _themeProvider?.updateFromUrl(item.artUri.toString()));
         }
+        Future.microtask(() => fetchLyrics(item.id));
       }
       notifyListeners();
     });
@@ -134,6 +153,12 @@ class PlayerProvider extends ChangeNotifier {
       isBuffering = state.processingState == AudioProcessingState.buffering;
       queue = _handler.currentQueue;
       currentIndex = _handler.currentIndex;
+
+      if (state.processingState == AudioProcessingState.completed &&
+          autoPlay &&
+          currentSong != null) {
+        Future.microtask(() => _smartAutoQueue());
+      }
 
       final d = _handler.player.duration;
       if (d != null && d.inMilliseconds > 0) {
@@ -167,16 +192,36 @@ class PlayerProvider extends ChangeNotifier {
     audioQuality = _settingsBox!.get('audioQuality', defaultValue: 'Normal');
     autoPlay = _settingsBox!.get('autoPlay', defaultValue: true);
 
-    // Load Likes
-    final likes = _libraryBox!.get('liked_ids', defaultValue: []);
-    _likedIds.addAll((likes as List).map((e) => e.toString()));
-
     // Load saved download paths
     final savedPaths = _libraryBox!.get('download_paths', defaultValue: {});
     (savedPaths as Map)
         .forEach((k, v) => _downloadPaths[k.toString()] = v.toString());
     final downloaded = _libraryBox!.get('downloaded_ids', defaultValue: []);
     _downloadedIds.addAll((downloaded as List).map((e) => e.toString()));
+    final savedMetadata =
+        _libraryBox!.get('download_metadata', defaultValue: {});
+    (savedMetadata as Map).forEach((k, v) =>
+        _downloadedMetadata[k.toString()] = Map<String, String>.from(v));
+
+    final savedLikes = _libraryBox!.get('liked_ids', defaultValue: []);
+    _likedIds.addAll(savedLikes.map((e) => e.toString()));
+    final likedMeta = _libraryBox!.get('liked_metadata', defaultValue: {});
+    (likedMeta as Map).forEach(
+        (k, v) => _likedMetadata[k.toString()] = Map<String, String>.from(v));
+
+    // Load Recently Played
+    final savedRecent = _libraryBox!.get('recently_played', defaultValue: []);
+    recentlyPlayed.clear();
+    for (var m in savedRecent as List) {
+      final map = Map<String, dynamic>.from(m);
+      recentlyPlayed.add(MediaItem(
+        id: map['id'],
+        title: map['title'],
+        artist: map['artist'],
+        artUri: map['artUri'] != null ? Uri.parse(map['artUri']) : null,
+        extras: Map<String, dynamic>.from(map['extras'] ?? {}),
+      ));
+    }
 
     // Load saved weights
     final savedArtist = _tasteBox!.get('artist_weights', defaultValue: {});
@@ -205,33 +250,52 @@ class PlayerProvider extends ChangeNotifier {
     await _tasteBox?.put('played_ids', recentPlayed);
   }
 
+  Future<void> _saveRecent() async {
+    final list = recentlyPlayed
+        .map((m) => {
+              'id': m.id,
+              'title': m.title,
+              'artist': m.artist,
+              'artUri': m.artUri?.toString(),
+              'extras': m.extras,
+            })
+        .toList();
+    await _libraryBox?.put('recently_played', list);
+  }
+
   String _detectGenre(String title, String artist) {
     final text = '$title $artist'.toLowerCase();
-    if (text.contains(RegExp(r'lofi|lo-fi|chill beat|study music')))
+
+    if (text.contains(RegExp(
+        r'lofi|lo-fi|chill beat|study music|relax|ambient|coffee shop|mellow|calm')))
       return 'lofi';
-    if (text.contains(
-        RegExp(r'punjabi|bhangra|shubh|ap dhillon|diljit|sidhu|karan|babbal')))
+    if (text.contains(RegExp(
+        r'punjabi|bhangra|shubh|ap dhillon|diljit|sidhu|karan|babbal|amrit maan|gurinder|sidhu moose wala|jordan sandhu|nseeeb')))
       return 'punjabi';
-    if (text.contains(
-        RegExp(r'arijit|atif|armaan|jubin|romantic|ishq|dil|love song hindi')))
-      return 'romantic_hindi';
-    if (text.contains(
-        RegExp(r'rap|hip.?hop|trap|drake|kendrick|eminem|j cole|lil ')))
+    if (text.contains(RegExp(
+        r'arijit|atif|armaan|jubin|romantic|ishq|dil|love song hindi|kumarsanu|udit narayan|alka yagnik|sonu nigam|shreya ghoshal')))
+      return 'bollywood_romantic';
+    if (text.contains(RegExp(
+        r'rap|hip.?hop|trap|drake|kendrick|eminem|j cole|lil |kanye|21 savage|future|post malone|travis scott|badshah|raftaar|kr$na|divine|emiway')))
       return 'hiphop';
-    if (text.contains(
-        RegExp(r'weeknd|pop|taylor|ed sheeran|justin bieber|billie|ariana')))
+    if (text.contains(RegExp(
+        r'weeknd|pop|taylor|ed sheeran|justin bieber|billie|ariana|dua lipa|shawn mendes|bruno mars|katy perry|rihanna')))
       return 'pop';
     if (text.contains(RegExp(
-        r'edm|electronic|dj |remix|bass|techno|house|avicii|martin garrix')))
+        r'edm|electronic|dj |remix|bass|techno|house|avicii|martin garrix|skrillex|tiesto|marshmello|alan walker|david guetta')))
       return 'electronic';
+    if (text.contains(RegExp(
+        r'indie|rock|nirvana|beatles|queen|pink floyd|coldplay|arctic monkeys|tame impala|alternative')))
+      return 'rock_indie';
+    if (text
+        .contains(RegExp(r'kpop|bts|blackpink|twice|exo|stray kids|newjeans')))
+      return 'kpop';
     if (text.contains(
         RegExp(r'bollywood|hindi|filmi|movie|film|kumar|singh|sharma')))
       return 'bollywood';
     if (text
         .contains(RegExp(r'workout|gym|energy|beast|power|motivation|hard')))
       return 'workout';
-    if (text.contains(RegExp(r'indie|alternative|acoustic|folk|unplugged')))
-      return 'indie';
     if (text.contains(RegExp(r'r&b|rnb|soul|neo.?soul|slow jam'))) return 'rnb';
     if (text.contains(RegExp(r'classical|instrumental|piano|violin|orchestra')))
       return 'classical';
@@ -340,20 +404,20 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<void> _smartAutoQueue() async {
-    if (_autoQueuing) return;
+    if (_autoQueuing || !autoPlay) return;
     _autoQueuing = true;
     try {
       List<SongResult> candidates = [];
 
-      // Step 1: Try YouTube Music's real "Up Next"
+      // Step 1: Try YouTube Music's real recommendations for autoplay
       if (currentSong != null) {
-        candidates = await _innerTube
-            .getUpNext(currentSong!.id)
+        candidates = await _recommendations
+            .getWatchNext(currentSong!.id)
             .timeout(const Duration(seconds: 10), onTimeout: () => []);
       }
 
-      // Step 2: If UpNext failed or too few, use smart search
-      if (candidates.length < 3) {
+      // Step 2: Fallback to smart search if empty
+      if (candidates.isEmpty) {
         final query = _buildQuery();
         candidates = await _innerTube
             .freshSearch(query)
@@ -369,11 +433,8 @@ class PlayerProvider extends ChangeNotifier {
               s.title.isNotEmpty)
           .toList();
 
-      // Step 4: Shuffle slightly for variety
-      filtered.shuffle();
-
-      // Add up to 5
-      for (final song in filtered.take(5)) {
+      // Step 4: Add up to 10 recommendations to keep queue healthy
+      for (final song in filtered.take(10)) {
         await _handler.addToQueue(songToMediaItem(song));
       }
 
@@ -391,58 +452,23 @@ class PlayerProvider extends ChangeNotifier {
     isLoadingHome = true;
     notifyListeners();
 
-    // Use a temporary session set to keep songs unique across row sections
-    final Set<String> sessionSeenIds = {};
-
-    final playlistQueries = {
-      'Top Charts': 'Official Music Charts India Today',
-      'Global Hits': 'Top 50 Global Billboard Official',
-      'iPop India': 'Official iPop India Top Hits Playlist',
-    };
-
-    final songQueries = {
-      'Winner Energy': 'high energy workout motivational songs 2024',
-      'Bollywood Party': 'best bollywood party songs 2024 latest',
-      'Bollywood Fire': 'latest trending bollywood fire songs hits',
-      'Haryanvi Party': 'non stop haryanvi party mashup 2024',
-      'Tollywood': 'top 50 tollywood telugu hits 2024',
-      'Mollywood': 'top 50 mollywood malayalam hits 2024',
-      'Instagram Hits': 'viral trending instagram reels songs hits',
-      'Mashups': 'best bollywood lofi mashup songs long',
-      'Lofi India': 'bollywood lofi chill beats hindi 2024',
-    };
-
     try {
-      // 1. Fetch Playlists
-      for (var entry in playlistQueries.entries) {
-        final results = await _innerTube
-            .searchPlaylists(entry.value)
-            .timeout(const Duration(seconds: 12), onTimeout: () => []);
-        if (results.isNotEmpty) {
-          homePlaylists[entry.key] = results;
-          notifyListeners();
-        }
-      }
+      final feed = await _innerTube.getHomeFeed();
+      if (feed.isNotEmpty) {
+        homeSections.clear();
+        homePlaylists.clear();
+        feed.forEach((title, items) {
+          if (items.isNotEmpty) {
+            final songs = items.whereType<SongResult>().toList();
+            if (songs.isNotEmpty) homeSections[title] = songs;
 
-      // 2. Fetch Songs with session-based uniqueness
-      for (var entry in songQueries.entries) {
-        final results = await _innerTube
-            .freshSearch(entry.value)
-            .timeout(const Duration(seconds: 15), onTimeout: () => []);
-
-        final filtered = results.where((s) {
-          if (sessionSeenIds.contains(s.id)) return false;
-          sessionSeenIds.add(s.id);
-          return true;
-        }).toList();
-
-        if (filtered.isNotEmpty) {
-          homeSections[entry.key] = filtered;
-          notifyListeners();
-        }
+            final playlists = items.whereType<PlaylistResult>().toList();
+            if (playlists.isNotEmpty) homePlaylists[title] = playlists;
+          }
+        });
       }
     } catch (e) {
-      debugPrint('Error fetching home sections: $e');
+      debugPrint('Error fetching home feed: $e');
     } finally {
       isLoadingHome = false;
       notifyListeners();
@@ -504,6 +530,7 @@ class PlayerProvider extends ChangeNotifier {
     if (!recentlyPlayed.any((s) => s.id == itemToPlay.id)) {
       recentlyPlayed.insert(0, itemToPlay);
       if (recentlyPlayed.length > 50) recentlyPlayed.removeLast();
+      _saveRecent();
     }
     _boostSong(itemToPlay.artist ?? 'Unknown', itemToPlay.title, itemToPlay.id);
 
@@ -594,6 +621,47 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
+  Future<List<SongResult>> getSongVersions(String title, String artist) async {
+    try {
+      final query = "$title $artist versions";
+      final results = await _innerTube.freshSearch(query);
+
+      // Filter: must contain part of original title to be relevant
+      final originalLower =
+          title.toLowerCase().split(' (')[0].split(' - ')[0].trim();
+      final versions = results.where((s) {
+        final titleLower = s.title.toLowerCase();
+        return titleLower.contains(originalLower);
+      }).toList();
+
+      // Sort: Prioritize strings with keywords
+      const keywords = [
+        'slowed',
+        'reverb',
+        'speed',
+        'sped',
+        '3d',
+        '8d',
+        'unplugged',
+        'acoustic',
+        'remix',
+        'lofi'
+      ];
+      versions.sort((a, b) {
+        int scoreA = keywords.fold(
+            0, (prev, k) => prev + (a.title.toLowerCase().contains(k) ? 1 : 0));
+        int scoreB = keywords.fold(
+            0, (prev, k) => prev + (b.title.toLowerCase().contains(k) ? 1 : 0));
+        return scoreB.compareTo(scoreA);
+      });
+
+      return versions;
+    } catch (e) {
+      debugPrint('Error fetching versions: $e');
+      return [];
+    }
+  }
+
   Future<void> fetchPlaylistContent(String playlistId) async {
     isSearching = true;
     searchResults = [];
@@ -642,10 +710,17 @@ class PlayerProvider extends ChangeNotifier {
     if (item == null) return;
     if (_likedIds.contains(item.id)) {
       _likedIds.remove(item.id);
+      _likedMetadata.remove(item.id);
     } else {
       _likedIds.add(item.id);
+      _likedMetadata[item.id] = {
+        'title': item.title,
+        'artist': item.artist ?? 'Unknown',
+        'thumbnail': item.artUri?.toString() ?? '',
+      };
     }
     _libraryBox?.put('liked_ids', _likedIds.toList());
+    _libraryBox?.put('liked_metadata', _likedMetadata);
     notifyListeners();
   }
 
@@ -653,28 +728,68 @@ class PlayerProvider extends ChangeNotifier {
     if (song == null) return;
     if (_likedIds.contains(song.id)) {
       _likedIds.remove(song.id);
+      _likedMetadata.remove(song.id);
     } else {
       _likedIds.add(song.id);
+      _likedMetadata[song.id] = {
+        'title': song.title,
+        'artist': song.artist,
+        'thumbnail': song.thumbnail,
+      };
     }
     _libraryBox?.put('liked_ids', _likedIds.toList());
+    _libraryBox?.put('liked_metadata', _likedMetadata);
     notifyListeners();
   }
 
   bool isDownloaded(String? id) => id != null && _downloadedIds.contains(id);
   bool isDownloading(String? id) => id != null && _downloadingIds.contains(id);
 
+  List<SongResult> getLikedSongs() {
+    return _likedIds.map((id) {
+      final meta = _likedMetadata[id]!;
+      return SongResult(
+        id: id,
+        title: meta['title']!,
+        artist: meta['artist']!,
+        thumbnail: meta['thumbnail']!,
+      );
+    }).toList();
+  }
+
+  List<SongResult> getDownloadedSongs() {
+    return _downloadPaths.entries.map((e) {
+      final meta = _downloadedMetadata[e.key];
+      if (meta != null) {
+        return SongResult(
+          id: e.key,
+          title: meta['title'] ?? 'Unknown',
+          artist: meta['artist'] ?? 'Unknown',
+          thumbnail: meta['thumbnail'] ?? '',
+        );
+      }
+      // Fallback
+      return SongResult(
+        id: e.key,
+        title: 'Downloaded Song',
+        artist: 'Offline',
+        thumbnail: '',
+      );
+    }).toList();
+  }
+
   Future<void> downloadTrack(MediaItem? item) async {
     if (item == null) return;
     if (_downloadedIds.contains(item.id)) return;
     if (_downloadingIds.contains(item.id)) return;
 
-    // Request permissions
     if (Platform.isAndroid) {
-      final status = await Permission.storage.request();
-      if (!status.isGranted) {
-        final extStatus = await Permission.manageExternalStorage.request();
-        if (!extStatus.isGranted) return;
+      if (await Permission.notification.request().isDenied) {
+        // Just a courtesy request
       }
+      // For Android/media, we only need basic storage or audio permissions (or sometimes nothing at all on newer APIs)
+      await Permission.audio.request();
+      await Permission.storage.request();
     }
 
     _downloadingIds.add(item.id);
@@ -682,15 +797,15 @@ class PlayerProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // 1. Get Stream Manifest
-      final manifest = await _yt.videos.streamsClient.getManifest(item.id);
+      final manifest = await _yt.videos.streamsClient.getManifest(
+        item.id,
+        ytClients: [yt_exp.YoutubeApiClient.androidVr],
+      ).timeout(const Duration(seconds: 20));
 
-      // 2. Select stream based on quality
       yt_exp.AudioStreamInfo stream;
       if (audioQuality == 'Lossless' || audioQuality == 'High') {
         stream = manifest.audioOnly.withHighestBitrate();
       } else {
-        // Find a medium quality around 128kbps or fallback
         stream = manifest.audioOnly.firstWhere(
           (s) =>
               s.bitrate.bitsPerSecond >= 120000 &&
@@ -699,36 +814,59 @@ class PlayerProvider extends ChangeNotifier {
         );
       }
 
-      // 3. Prepare local path
+      String filePath;
       final dir = await getApplicationDocumentsDirectory();
-      final downloadsDir = Directory('${dir.path}/downloads');
+      final downloadsDir = Directory(p.join(dir.path, 'downloads'));
       if (!await downloadsDir.exists())
         await downloadsDir.create(recursive: true);
+      filePath = p.join(downloadsDir.path, '${item.id}.rvx');
 
-      final filePath = '${downloadsDir.path}/${item.id}.m4a';
-
-      // 4. Download with Dio
+      int lastNotify = 0;
       await _dio.download(
         stream.url.toString(),
         filePath,
         onReceiveProgress: (count, total) {
           if (total > 0) {
-            downloadProgress[item.id] = count / total;
+            final prog = count / total;
+            downloadProgress[item.id] = prog;
+            final now = DateTime.now().millisecondsSinceEpoch;
+            if (now - lastNotify > 1000) {
+              lastNotify = now;
+              _showDownloadNotification(item.title, (prog * 100).toInt());
+            }
             notifyListeners();
           }
         },
       );
 
-      // 5. Success
       _downloadingIds.remove(item.id);
       _downloadedIds.add(item.id);
       _downloadPaths[item.id] = filePath;
       downloadProgress.remove(item.id);
 
-      // Persist
+      _downloadedMetadata[item.id] = {
+        'title': item.title,
+        'artist': item.artist ?? 'Unknown',
+        'thumbnail': item.artUri?.toString() ?? '',
+      };
+
       await _libraryBox?.put('downloaded_ids', _downloadedIds.toList());
       await _libraryBox?.put('download_paths', _downloadPaths);
+      await _libraryBox?.put('download_metadata', _downloadedMetadata);
 
+      _notifications.show(
+        0,
+        'Download Complete',
+        item.title,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'downloads',
+            'Downloads',
+            importance: Importance.low,
+            priority: Priority.low,
+          ),
+        ),
+      );
       notifyListeners();
     } catch (e) {
       debugPrint('Download error: $e');
@@ -770,5 +908,54 @@ class PlayerProvider extends ChangeNotifier {
     _positionSub.cancel();
     _durationSub.cancel();
     super.dispose();
+  }
+
+  Future<void> _initNotifications() async {
+    const android = AndroidInitializationSettings('mipmap/ic_launcher');
+    const initSetting = InitializationSettings(android: android);
+    await _notifications.initialize(initSetting);
+  }
+
+  void _showDownloadNotification(String title, int progress) {
+    _notifications.show(
+      0,
+      'Downloading...',
+      title,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          'downloads',
+          'Downloads',
+          channelDescription: 'Download status',
+          importance: Importance.high,
+          priority: Priority.high,
+          showProgress: true,
+          maxProgress: 100,
+          progress: progress,
+          onlyAlertOnce: true,
+          ongoing: true,
+        ),
+      ),
+    );
+  }
+
+  Future<void> fetchLyrics(String videoId) async {
+    isLyricsLoading = true;
+    lyrics = '';
+    notifyListeners();
+
+    try {
+      final browseId = await _innerTube.getLyricsBrowseId(videoId);
+      if (browseId != null) {
+        final text = await _innerTube.getLyrics(browseId);
+        lyrics = text ?? 'Lyrics not available for this track.';
+      } else {
+        lyrics = 'Lyrics not available for this track.';
+      }
+    } catch (e) {
+      lyrics = 'Error fetching lyrics: $e';
+    } finally {
+      isLyricsLoading = false;
+      notifyListeners();
+    }
   }
 }
