@@ -11,10 +11,19 @@ class ThemeProvider extends ChangeNotifier {
   String? _lastUrl;
   bool _busy = false;
 
+  bool _isAmoled = false;
+  void setAmoled(bool val) {
+    if (_isAmoled == val) return;
+    _isAmoled = val;
+    notifyListeners();
+  }
+
   LinearGradient get bg => LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [bgColor1, bgColor2, bgColor3],
+        colors: _isAmoled
+            ? [Colors.black, Colors.black, Colors.black]
+            : [bgColor1, bgColor2, bgColor3],
         stops: const [0.0, 0.5, 1.0],
       );
 

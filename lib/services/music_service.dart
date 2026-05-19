@@ -1,5 +1,6 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:audio_session/audio_session.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import 'dart:ui' show Color;
 
@@ -21,13 +22,21 @@ Future<MusicHandler> initMusicService() async {
 }
 
 class MusicHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
-  final AudioPlayer _player = AudioPlayer();
+  late final AudioPlayer _player;
   final YoutubeExplode _yt = YoutubeExplode();
   final List<MediaItem> _queue = [];
   int _currentIndex = 0;
+  String _currentQuality = 'Normal';
 
   MusicHandler() {
+    _player = AudioPlayer();
+    _initAudioSession();
     _initPlayerListeners();
+  }
+
+  Future<void> _initAudioSession() async {
+    final session = await AudioSession.instance;
+    await session.configure(const AudioSessionConfiguration.music());
   }
 
   void _initPlayerListeners() {
@@ -89,7 +98,10 @@ class MusicHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     ));
   }
 
-  Future<void> playFromId(String videoId) async {
+  set currentQuality(String quality) => _currentQuality = quality;
+
+  Future<void> playFromId(String videoId, {String? quality}) async {
+    final targetQuality = quality ?? _currentQuality;
     // Set loading state
     playbackState.add(playbackState.value.copyWith(
       processingState: AudioProcessingState.loading,
@@ -103,7 +115,7 @@ class MusicHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
           ytClients: [YoutubeApiClient.androidVr], // NEVER CHANGE
         ).timeout(const Duration(seconds: 20));
 
-        final streamInfo = manifest.audioOnly.withHighestBitrate();
+        final streamInfo = _getBestStream(manifest, targetQuality);
 
         await _player.setUrl(
           streamInfo.url.toString(),
@@ -151,6 +163,48 @@ class MusicHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     _currentIndex = startIndex.clamp(0, _queue.length - 1);
     mediaItem.add(_queue[_currentIndex]);
     await playFromId(_queue[_currentIndex].id);
+  }
+
+  AudioStreamInfo _getBestStream(StreamManifest manifest, String quality) {
+    final audioOnly = manifest.audioOnly.toList();
+    if (audioOnly.isEmpty) throw Exception('No audio streams available');
+
+    // Sort by bitrate ascending
+    audioOnly.sort(
+        (a, b) => a.bitrate.bitsPerSecond.compareTo(b.bitrate.bitsPerSecond));
+
+    switch (quality) {
+      case 'Data Saver':
+        // Target: 48-64kbps
+        return _findInRange(audioOnly, 48000, 64000) ?? audioOnly.first;
+      case 'Normal':
+        // Target: 96-128kbps
+        return _findInRange(audioOnly, 96000, 128000) ??
+            _findInRange(audioOnly, 64000, 160000) ??
+            audioOnly[audioOnly.length ~/ 2];
+      case 'High':
+        // Target: 160-192kbps
+        return _findInRange(audioOnly, 160000, 192000) ??
+            _findInRange(audioOnly, 128000, 256000) ??
+            manifest.audioOnly.withHighestBitrate();
+      case 'Very High':
+        // Target: 256kbps
+        return _findInRange(audioOnly, 240000, 260000) ??
+            manifest.audioOnly.withHighestBitrate();
+      case 'Lossless':
+      default:
+        return manifest.audioOnly.withHighestBitrate();
+    }
+  }
+
+  AudioStreamInfo? _findInRange(
+      List<AudioStreamInfo> streams, int min, int max) {
+    try {
+      return streams.firstWhere((s) =>
+          s.bitrate.bitsPerSecond >= min && s.bitrate.bitsPerSecond <= max);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> loadPlaylist(List<MediaItem> items, {int startIndex = 0}) async {

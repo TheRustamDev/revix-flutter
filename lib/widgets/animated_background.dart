@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
+import '../providers/settings_provider.dart';
 
 class AnimatedBackground extends StatefulWidget {
   final Widget child;
@@ -19,14 +20,58 @@ class _AnimatedBackgroundState extends State<AnimatedBackground>
   @override
   void initState() {
     super.initState();
-    _c1 = AnimationController(vsync: this, duration: const Duration(seconds: 7))
+    _initControllers();
+  }
+
+  void _initControllers() {
+    final settings = context.read<SettingsProvider>().appearance;
+    final speed = settings.reducedMotion ? 0.0 : settings.animationSpeed;
+
+    // Base durations
+    const d1 = 7000;
+    const d2 = 11000;
+    const d3 = 17000;
+
+    _c1 = AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: speed > 0 ? (d1 ~/ speed) : 1000000))
       ..repeat(reverse: true);
-    _c2 =
-        AnimationController(vsync: this, duration: const Duration(seconds: 11))
-          ..repeat(reverse: true);
-    _c3 =
-        AnimationController(vsync: this, duration: const Duration(seconds: 17))
-          ..repeat(reverse: true);
+    _c2 = AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: speed > 0 ? (d2 ~/ speed) : 1000000))
+      ..repeat(reverse: true);
+    _c3 = AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: speed > 0 ? (d3 ~/ speed) : 1000000))
+      ..repeat(reverse: true);
+
+    if (settings.reducedMotion) {
+      _c1.stop();
+      _c2.stop();
+      _c3.stop();
+    }
+  }
+
+  void _updateSpeeds() {
+    final settings = context.read<SettingsProvider>().appearance;
+    final speed = settings.reducedMotion ? 0.0 : settings.animationSpeed;
+
+    _c1.duration =
+        Duration(milliseconds: speed > 0 ? (7000 ~/ speed) : 1000000);
+    _c2.duration =
+        Duration(milliseconds: speed > 0 ? (11000 ~/ speed) : 1000000);
+    _c3.duration =
+        Duration(milliseconds: speed > 0 ? (17000 ~/ speed) : 1000000);
+
+    if (settings.reducedMotion) {
+      _c1.stop();
+      _c2.stop();
+      _c3.stop();
+    } else {
+      _c1.repeat(reverse: true);
+      _c2.repeat(reverse: true);
+      _c3.repeat(reverse: true);
+    }
   }
 
   @override
@@ -39,6 +84,8 @@ class _AnimatedBackgroundState extends State<AnimatedBackground>
 
   @override
   Widget build(BuildContext context) {
+    _updateSpeeds();
+
     return Consumer<ThemeProvider>(
       builder: (_, theme, __) => AnimatedBuilder(
         animation: Listenable.merge([_c1, _c2, _c3]),

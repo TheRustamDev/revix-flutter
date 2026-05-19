@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 
 class InnerTubeClient {
   static const String _baseUrl = 'https://music.youtube.com/youtubei/v1';
@@ -648,6 +649,138 @@ class InnerTubeClient {
       return {};
     }
   }
+
+  Future<List<String>> getSearchSuggestions(String query) async {
+    try {
+      final url =
+          'https://suggestqueries-clients.google.com/complete/search?client=youtube&hl=en&gl=us&q=${Uri.encodeComponent(query)}&ds=yt&oe=utf-8';
+      final response = await _dio.get(url);
+      if (response.statusCode == 200) {
+        String body = response.data.toString();
+
+        final startBracket = body.indexOf('[');
+        final endBracket = body.lastIndexOf(']');
+        if (startBracket == -1 || endBracket == -1) return [];
+
+        final jsonStr = body.substring(startBracket, endBracket + 1);
+        final data = jsonDecode(jsonStr);
+
+        final List<String> suggestions = [];
+        if (data is List && data.length > 1) {
+          final sList = data[1];
+          if (sList is List) {
+            for (var item in sList) {
+              if (item is List && item.isNotEmpty) {
+                suggestions.add(item[0].toString());
+              } else if (item is String) {
+                suggestions.add(item);
+              }
+            }
+          }
+        }
+        return suggestions;
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Suggestions error: $e');
+      return [];
+    }
+  }
+
+  Future<List<ArtistResult>> searchArtists(String query) async {
+    try {
+      final response = await _dio.post(
+        '/search?key=$_apiKey&prettyPrint=false',
+        data: jsonEncode({
+          "context": _context,
+          "query": query,
+          "params": "Eg-KAQwIABAAGAAgASgB" // Type: Artist filter
+        }),
+      );
+      final List<ArtistResult> results = [];
+      try {
+        final contents = response.data['contents']
+                ['tabbedSearchResultsRenderer']['tabs'][0]['tabRenderer']
+            ['content']['sectionListRenderer']['contents'];
+        for (var section in contents) {
+          final items = section['musicShelfRenderer']?['contents'] ?? [];
+          for (var item in items) {
+            final renderer = item['musicResponsiveListItemRenderer'];
+            if (renderer == null) continue;
+            final title = renderer['flexColumns']?[0]
+                        ['musicResponsiveListItemFlexColumnRenderer']?['text']
+                    ?['runs']?[0]?['text'] ??
+                '';
+            final browseId = renderer['navigationEndpoint']?['browseEndpoint']
+                    ?['browseId'] ??
+                '';
+            final thumb = renderer['thumbnail']?['musicThumbnailRenderer']
+                        ?['thumbnail']?['thumbnails']
+                    ?.last?['url'] ??
+                '';
+            if (browseId.isNotEmpty && title.isNotEmpty) {
+              results.add(ArtistResult(
+                  id: browseId, name: title, thumbnail: _hqThumb(thumb)));
+            }
+          }
+        }
+      } catch (_) {}
+      return results;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<List<AlbumResult>> searchAlbums(String query) async {
+    try {
+      final response = await _dio.post(
+        '/search?key=$_apiKey&prettyPrint=false',
+        data: jsonEncode({
+          "context": _context,
+          "query": query,
+          "params": "Eg-KAQwIBAABGAAgACgB" // Type: Album filter
+        }),
+      );
+      final List<AlbumResult> results = [];
+      try {
+        final contents = response.data['contents']
+                ['tabbedSearchResultsRenderer']['tabs'][0]['tabRenderer']
+            ['content']['sectionListRenderer']['contents'];
+        for (var section in contents) {
+          final items = section['musicShelfRenderer']?['contents'] ?? [];
+          for (var item in items) {
+            final renderer = item['musicResponsiveListItemRenderer'];
+            if (renderer == null) continue;
+            final title = renderer['flexColumns']?[0]
+                        ['musicResponsiveListItemFlexColumnRenderer']?['text']
+                    ?['runs']?[0]?['text'] ??
+                '';
+            final artist = renderer['flexColumns']?[1]
+                        ['musicResponsiveListItemFlexColumnRenderer']?['text']
+                    ?['runs']?[0]?['text'] ??
+                '';
+            final browseId = renderer['navigationEndpoint']?['browseEndpoint']
+                    ?['browseId'] ??
+                '';
+            final thumb = renderer['thumbnail']?['musicThumbnailRenderer']
+                        ?['thumbnail']?['thumbnails']
+                    ?.last?['url'] ??
+                '';
+            if (browseId.isNotEmpty && title.isNotEmpty) {
+              results.add(AlbumResult(
+                  id: browseId,
+                  title: title,
+                  artist: artist,
+                  thumbnail: _hqThumb(thumb)));
+            }
+          }
+        }
+      } catch (_) {}
+      return results;
+    } catch (_) {
+      return [];
+    }
+  }
 }
 
 class LyricLine {
@@ -687,4 +820,23 @@ class PlaylistResult {
     required this.owner,
     required this.thumbnail,
   });
+}
+
+class ArtistResult {
+  final String id;
+  final String name;
+  final String thumbnail;
+  ArtistResult({required this.id, required this.name, required this.thumbnail});
+}
+
+class AlbumResult {
+  final String id;
+  final String title;
+  final String artist;
+  final String thumbnail;
+  AlbumResult(
+      {required this.id,
+      required this.title,
+      required this.artist,
+      required this.thumbnail});
 }

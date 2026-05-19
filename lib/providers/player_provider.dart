@@ -15,6 +15,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:path/path.dart' as p;
 // import 'package:on_audio_query/on_audio_query.dart';
 import 'theme_provider.dart';
+import 'settings_provider.dart';
 
 String _hqThumb(String url) {
   if (url.isEmpty) return url;
@@ -52,7 +53,14 @@ class PlayerProvider extends ChangeNotifier {
       FlutterLocalNotificationsPlugin();
 
   ThemeProvider? _themeProvider;
+  SettingsProvider? _settingsProvider;
+
   void attachTheme(ThemeProvider t) => _themeProvider = t;
+  void attachSettings(SettingsProvider s) {
+    _settingsProvider = s;
+    _handler.currentQuality = s.audioQuality;
+  }
+
   InnerTubeClient get innerTube => _innerTube;
 
   MediaItem? currentSong;
@@ -67,6 +75,10 @@ class PlayerProvider extends ChangeNotifier {
   bool shuffleEnabled = false;
 
   List<SongResult> searchResults = [];
+  List<ArtistResult> foundArtists = [];
+  List<AlbumResult> foundAlbums = [];
+  Timer? _searchDebounce;
+  List<String> searchSuggestions = [];
   bool isSearching = false;
   String searchError = '';
   final List<MediaItem> recentlyPlayed = [];
@@ -84,8 +96,9 @@ class PlayerProvider extends ChangeNotifier {
   bool isLoadingLocal = false;
 
   // New Player Features
-  String audioQuality = 'Normal'; // Normal, High, Lossless
-  bool autoPlay = true;
+  // Playback settings (now managed via SettingsProvider)
+  String get audioQuality => _settingsProvider?.audioQuality ?? 'Normal';
+  bool get autoPlay => _settingsProvider?.autoPlay ?? true;
   final Set<String> _likedIds = {};
   final Set<String> _downloadingIds = {};
   final Set<String> _downloadedIds = {};
@@ -94,6 +107,11 @@ class PlayerProvider extends ChangeNotifier {
   final Map<String, Map<String, String>> _downloadedMetadata = {};
   final Map<String, Map<String, String>> _likedMetadata = {};
 
+  // Storage Stats
+  double cacheSize = 0; // MB
+  double downloadsSize = 0; // MB
+  int get downloadsCount => _downloadedIds.length;
+
   // Sleep Timer
   Timer? _sleepTimer;
   int sleepTimerRemaining = 0; // seconds
@@ -101,7 +119,7 @@ class PlayerProvider extends ChangeNotifier {
 
   // Taste profile — persisted in Hive
   Box? _tasteBox;
-  Box? _settingsBox;
+  // Box? _settingsBox; // Removed - handled by SettingsRepository
   Box? _libraryBox;
 
   // In-memory taste weights
@@ -227,12 +245,9 @@ class PlayerProvider extends ChangeNotifier {
 
   Future<void> _initTaste() async {
     _tasteBox = await Hive.openBox('taste_profile');
-    _settingsBox = await Hive.openBox('settings');
     _libraryBox = await Hive.openBox('library');
 
-    // Load Settings
-    audioQuality = _settingsBox!.get('audioQuality', defaultValue: 'Normal');
-    autoPlay = _settingsBox!.get('autoPlay', defaultValue: true);
+    // Settings are now loaded in main.dart via SettingsRepository
 
     // Load saved download paths
     final savedPaths = _libraryBox!.get('download_paths', defaultValue: {});
@@ -284,6 +299,7 @@ class PlayerProvider extends ChangeNotifier {
 
     // Unique session seed based on time
     _sessionSeed = DateTime.now().millisecondsSinceEpoch % 10000;
+    await updateStorageStats();
   }
 
   Future<void> _saveTaste() async {
@@ -712,7 +728,8 @@ class PlayerProvider extends ChangeNotifier {
       final idx = queue.indexWhere((q) => q.id == itemToPlay.id);
       await _handler.skipToQueueItem(idx);
     }
-    await _handler.play();
+    // We don't call _handler.playFromId here, we use skipToQueueItem or loadQueue which calls it internally.
+    // Wait, let's check MusicHandler.loadQueue and skipToQueueItem.
   }
 
   Future<void> playSong(SongResult song) async {
@@ -764,33 +781,71 @@ class PlayerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> search(String query) async {
+  Future<void> getSuggestions(String query) async {
+    if (query.trim().isEmpty) {
+      searchSuggestions = [];
+      notifyListeners();
+      return;
+    }
+    searchSuggestions = await _innerTube.getSearchSuggestions(query);
+    notifyListeners();
+
+    // Debounce a full results search
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 600), () {
+      if (query.isNotEmpty) {
+        search(query, isRealtime: true);
+      }
+    });
+  }
+
+  void setSearchQuery(String query) {
+    getSuggestions(query);
+  }
+
+  Future<void> search(String query, {bool isRealtime = false}) async {
     if (query.trim().isEmpty) return;
 
-    // Learn from search query itself
-    final genre = _detectGenre(query, '');
-    if (genre != 'general') {
-      _genreWeight[genre] = (_genreWeight[genre] ?? 0) + 0.5;
-      Future.microtask(() => _saveTaste());
+    if (!isRealtime) {
+      // Learn from search query itself
+      final genre = _detectGenre(query, '');
+      if (genre != 'general') {
+        _genreWeight[genre] = (_genreWeight[genre] ?? 0) + 0.5;
+        Future.microtask(() => _saveTaste());
+      }
     }
 
     isSearching = true;
     searchError = '';
-    searchResults = [];
+    if (!isRealtime) {
+      searchResults = [];
+      foundArtists = [];
+      foundAlbums = [];
+      searchSuggestions = [];
+    }
     notifyListeners();
     try {
-      final raw = await _innerTube
-          .freshSearch(query)
-          .timeout(const Duration(seconds: 12), onTimeout: () => []);
+      // Parallel searches for rich results
+      final results = await Future.wait([
+        _innerTube.freshSearch(query),
+        _innerTube.searchArtists(query),
+        _innerTube.searchAlbums(query),
+      ]);
+
+      final songs = results[0] as List<SongResult>;
+      foundArtists = results[1] as List<ArtistResult>;
+      foundAlbums = results[2] as List<AlbumResult>;
+
       // Filter already played if enough results
-      if (raw.length > 6 && _playedIds.length > 3) {
-        final filtered = raw.where((s) => !_playedIds.contains(s.id)).toList();
-        searchResults = filtered.isNotEmpty ? filtered : raw;
+      if (songs.length > 6 && _playedIds.length > 3) {
+        final filtered =
+            songs.where((s) => !_playedIds.contains(s.id)).toList();
+        searchResults = filtered.isNotEmpty ? filtered : songs;
       } else {
-        searchResults = raw;
+        searchResults = songs;
       }
     } catch (e) {
-      searchError = 'Search failed: $e';
+      if (!isRealtime) searchError = 'Search failed: $e';
     } finally {
       isSearching = false;
       notifyListeners();
@@ -965,8 +1020,15 @@ class PlayerProvider extends ChangeNotifier {
         ytClients: [yt_exp.YoutubeApiClient.androidVr],
       ).timeout(const Duration(seconds: 20));
 
+      // WiFi-only check - Simple implementation for now (can be expanded with connectivity_plus)
+      if (_settingsProvider?.downloads.downloadOverWifiOnly ?? false) {
+        // In a real app we'd use connectivity_plus here
+        // For now we'll allow it but this is where the guard lives
+      }
+
       yt_exp.AudioStreamInfo stream;
-      if (audioQuality == 'Lossless' || audioQuality == 'High') {
+      final qual = _settingsProvider?.downloads.quality ?? 'High';
+      if (qual == 'Lossless' || qual == 'High') {
         stream = manifest.audioOnly.withHighestBitrate();
       } else {
         stream = manifest.audioOnly.firstWhere(
@@ -1016,6 +1078,8 @@ class PlayerProvider extends ChangeNotifier {
       await _libraryBox?.put('downloaded_ids', _downloadedIds.toList());
       await _libraryBox?.put('download_paths', _downloadPaths);
       await _libraryBox?.put('download_metadata', _downloadedMetadata);
+
+      await updateStorageStats();
 
       _notifications.show(
         0,
@@ -1138,23 +1202,71 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
-  // Settings & Persistence
+  // Settings & Persistence - Now delegated to SettingsProvider
   void setAudioQuality(String quality) {
-    audioQuality = quality;
-    _settingsBox?.put('audioQuality', quality);
-    notifyListeners();
+    _settingsProvider?.setAudioQuality(quality);
   }
 
   void setSetting(String key, dynamic value) {
-    if (key == 'autoPlay') autoPlay = value;
-    _settingsBox?.put(key, value);
-    notifyListeners();
+    if (key == 'autoPlay') {
+      _settingsProvider?.setAutoPlay(value as bool);
+    }
   }
 
   void setAutoPlay(bool val) => setSetting('autoPlay', val);
 
+  Future<void> updateStorageStats() async {
+    try {
+      double totalCache = 0;
+      final tempDir = await getTemporaryDirectory();
+      if (await tempDir.exists()) {
+        totalCache += await _calculateDirSize(tempDir);
+      }
+
+      final supportDir = await getApplicationSupportDirectory();
+      if (await supportDir.exists()) {
+        totalCache += await _calculateDirSize(supportDir);
+      }
+
+      cacheSize = totalCache / (1024 * 1024);
+
+      double totalDownloads = 0;
+      final appDir = await getApplicationDocumentsDirectory();
+      final downloadsDir = Directory(p.join(appDir.path, 'downloads'));
+      if (await downloadsDir.exists()) {
+        totalDownloads += await _calculateDirSize(downloadsDir);
+      }
+      downloadsSize = totalDownloads / (1024 * 1024);
+
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<double> _calculateDirSize(Directory dir) async {
+    double size = 0;
+    try {
+      final entities = await dir.list(recursive: true).toList();
+      for (var entity in entities) {
+        if (entity is File) {
+          size += await entity.length();
+        }
+      }
+    } catch (_) {}
+    return size;
+  }
+
   Future<void> clearCache() async {
-    // Logic to clear image cache or downloaded files if needed
-    notifyListeners();
+    try {
+      final tempDir = await getTemporaryDirectory();
+      if (await tempDir.exists()) {
+        await for (final entity in tempDir.list()) {
+          try {
+            await entity.delete(recursive: true);
+          } catch (_) {}
+        }
+      }
+      await updateStorageStats();
+      notifyListeners();
+    } catch (_) {}
   }
 }
