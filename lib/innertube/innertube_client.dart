@@ -661,12 +661,14 @@ class SongResult {
   final String title;
   final String artist;
   final String thumbnail;
+  final bool isLocal;
 
   SongResult({
     required this.id,
     required this.title,
     required this.artist,
     required this.thumbnail,
+    this.isLocal = false,
   });
 
   @override

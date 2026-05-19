@@ -13,6 +13,7 @@ import '../innertube/innertube_client.dart';
 import '../innertube/recommendations.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:path/path.dart' as p;
+// import 'package:on_audio_query/on_audio_query.dart';
 import 'theme_provider.dart';
 
 String _hqThumb(String url) {
@@ -40,6 +41,7 @@ class PlayerProvider extends ChangeNotifier {
       YouTubeMusicRecommendations();
   final yt_exp.YoutubeExplode _yt = yt_exp.YoutubeExplode();
   final Dio _dio = Dio();
+  // final OnAudioQuery _audioQuery = OnAudioQuery();
 
   late final StreamSubscription<MediaItem?> _mediaItemSub;
   late final StreamSubscription<PlaybackState> _playbackSub;
@@ -76,6 +78,10 @@ class PlayerProvider extends ChangeNotifier {
   final Map<String, List<SongResult>> homeSections = {};
   final Map<String, List<PlaylistResult>> homePlaylists = {};
   bool isLoadingHome = false;
+
+  // Local Songs
+  List<SongResult> localSongs = [];
+  bool isLoadingLocal = false;
 
   // New Player Features
   String audioQuality = 'Normal'; // Normal, High, Lossless
@@ -119,6 +125,7 @@ class PlayerProvider extends ChangeNotifier {
     Future.microtask(() {
       _initTaste();
       _initNotifications();
+      fetchLocalSongs();
     });
 
     _mediaItemSub = _handler.mediaItem.listen((item) {
@@ -171,12 +178,15 @@ class PlayerProvider extends ChangeNotifier {
       queue = _handler.currentQueue;
       currentIndex = _handler.currentIndex;
 
-      if (state.processingState == AudioProcessingState.completed) {
+      if (state.processingState == AudioProcessingState.completed ||
+          state.processingState == AudioProcessingState.idle) {
         if (_sleepAfterSong) {
           pause();
           _sleepAfterSong = false;
           notifyListeners();
-        } else if (autoPlay && currentSong != null) {
+        } else if (autoPlay &&
+            currentSong != null &&
+            state.processingState == AudioProcessingState.completed) {
           Future.microtask(() => _smartAutoQueue());
         }
       }
@@ -542,6 +552,57 @@ class PlayerProvider extends ChangeNotifier {
       debugPrint('Error fetching picks: $e');
     } finally {
       isLoadingPicks = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> fetchLocalSongs() async {
+    if (isLoadingLocal) return;
+    isLoadingLocal = true;
+    notifyListeners();
+    try {
+      if (!kIsWeb && Platform.isAndroid) {
+        final status = await Permission.audio.request();
+        if (status.isGranted) {
+          final List<SongResult> foundSongs = [];
+          final musicDirs = [
+            Directory('/storage/emulated/0/Music'),
+            Directory('/storage/emulated/0/Download'),
+          ];
+
+          for (var dir in musicDirs) {
+            if (await dir.exists()) {
+              try {
+                final files = dir.listSync(recursive: true);
+                for (var file in files) {
+                  if (file is File) {
+                    final path = file.path.toLowerCase();
+                    if (path.endsWith('.mp3') ||
+                        path.endsWith('.m4a') ||
+                        path.endsWith('.wav')) {
+                      final name = p.basenameWithoutExtension(file.path);
+                      foundSongs.add(SongResult(
+                        id: file.path,
+                        title: name,
+                        artist: 'Local File',
+                        thumbnail: '',
+                        isLocal: true,
+                      ));
+                    }
+                  }
+                }
+              } catch (e) {
+                debugPrint('Error listing dir ${dir.path}: $e');
+              }
+            }
+          }
+          localSongs = foundSongs;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching local songs: $e');
+    } finally {
+      isLoadingLocal = false;
       notifyListeners();
     }
   }

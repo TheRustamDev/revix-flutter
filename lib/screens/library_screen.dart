@@ -7,6 +7,7 @@ import '../providers/player_provider.dart';
 import '../providers/theme_provider.dart';
 import '../innertube/innertube_client.dart';
 import 'profile_screen.dart';
+// import 'package:on_audio_query/on_audio_query.dart';
 import 'playlist_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
@@ -22,7 +23,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
   }
 
   @override
@@ -60,6 +61,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                       _albumsTabView(player),
                       _artistsTabView(player),
                       _downloadsTabView(player),
+                      _localTabView(player),
                     ],
                   ),
                 ),
@@ -177,6 +179,12 @@ class _LibraryScreenState extends State<LibraryScreen>
               Icon(Icons.download, size: 18),
               SizedBox(width: 8),
               Text("Downloads")
+            ])),
+            Tab(
+                child: Row(children: [
+              Icon(Icons.folder_open_rounded, size: 18),
+              SizedBox(width: 8),
+              Text("Local")
             ])),
           ],
         ),
@@ -597,6 +605,78 @@ class _LibraryScreenState extends State<LibraryScreen>
           const SizedBox(height: 20),
         ],
       ),
+    );
+  }
+
+  Widget _localTabView(PlayerProvider player) {
+    if (player.isLoadingLocal) {
+      return const Center(
+          child: CircularProgressIndicator(color: Color(0xFF8B5CF6)));
+    }
+    if (player.localSongs.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.folder_off_rounded,
+                color: Colors.white12, size: 64),
+            const SizedBox(height: 16),
+            const Text('No local songs found',
+                style: TextStyle(color: Colors.white38, fontSize: 16)),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () => player.fetchLocalSongs(),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF8B5CF6),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('Scan Device',
+                  style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(0, 10, 0, 100),
+      physics: const BouncingScrollPhysics(),
+      itemCount: player.localSongs.length,
+      itemBuilder: (context, i) {
+        final song = player.localSongs[i];
+        return ListTile(
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          leading: ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              width: 48,
+              height: 48,
+              color: Colors.white10,
+              child: const Icon(Icons.music_note, color: Colors.white24),
+            ),
+          ),
+          title: Text(
+            song.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+                color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+          ),
+          subtitle: Text(
+            song.artist,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+          trailing: const Icon(Icons.more_vert_rounded,
+              color: Colors.white38, size: 20),
+          onTap: () {
+            player.playSong(song);
+          },
+        );
+      },
     );
   }
 }

@@ -6,7 +6,7 @@ import 'package:provider/provider.dart';
 import '../providers/player_provider.dart';
 import '../providers/theme_provider.dart';
 import '../innertube/innertube_client.dart';
-import 'playlist_screen.dart';
+import 'category_detail_screen.dart';
 
 class ExploreScreen extends StatefulWidget {
   const ExploreScreen({super.key});
@@ -22,46 +22,85 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   final List<Map<String, dynamic>> _discoveryCards = [
     {
-      'label': 'Trending',
-      'icon': Icons.trending_up_rounded,
-      'query': 'trending songs india this week',
-      'color': const Color(0xFFEC4899),
-      'desc': 'Viral hits now'
-    },
-    {
-      'label': 'New Releases',
-      'icon': Icons.new_releases_rounded,
-      'query': 'new hindi songs released this month 2024',
-      'color': const Color(0xFF8B5CF6),
-      'desc': 'Fresh for you'
-    },
-    {
-      'label': 'Charts',
-      'icon': Icons.bar_chart_rounded,
-      'query': 'youtube music top 50 india charts',
-      'color': const Color(0xFF0EA5E9),
-      'desc': 'Ranking hits'
-    },
-    {
-      'label': 'Live & Events',
-      'icon': Icons.live_tv_rounded,
-      'query': 'best live concert performance 2024',
-      'color': const Color(0xFF10B981),
-      'desc': 'Real-time vibes'
-    },
-    {
-      'label': 'Podcasts',
+      'label': 'Singers',
       'icon': Icons.mic_external_on_rounded,
-      'query': 'hindi podcast storytelling show',
+      'query': 'top singers popular india 2024',
       'color': const Color(0xFFF59E0B),
-      'desc': 'Listen and learn'
+      'desc': 'Famous voices'
     },
     {
-      'label': 'Genres',
-      'icon': Icons.grid_view_rounded,
-      'query': 'best of all genres hindi english punjabi mix',
+      'label': 'Romance',
+      'icon': Icons.favorite_rounded,
+      'query': 'best romantic love songs hindi english',
+      'color': const Color(0xFFEC4899),
+      'desc': 'Feel the love'
+    },
+    {
+      'label': 'Workout',
+      'icon': Icons.fitness_center_rounded,
+      'query': 'best gym workout motivation music',
+      'color': const Color(0xFF10B981),
+      'desc': 'Push your limits'
+    },
+    {
+      'label': 'K-Pop',
+      'icon': Icons.auto_awesome_rounded,
+      'query': 'top kpop hits 2024 newjeans bts blackpink',
+      'color': const Color(0xFF0EA5E9),
+      'desc': 'Fresh Finds'
+    },
+    {
+      'label': 'Sleep',
+      'icon': Icons.bedtime_rounded,
+      'query': 'deep sleep music relaxing ambient rain',
       'color': const Color(0xFF6366F1),
-      'desc': 'All music styles'
+      'desc': 'Sweet dreams'
+    },
+    {
+      'label': 'Anime',
+      'icon': Icons.animation_rounded,
+      'query': 'best anime ost openings 2024',
+      'color': const Color(0xFFFF6B00),
+      'desc': 'Favorite themes'
+    },
+  ];
+
+  final List<Map<String, dynamic>> _singers = [
+    {
+      'name': 'Arijit Singh',
+      'query': 'arijit singh best songs mix',
+      'image':
+          'https://yt3.googleusercontent.com/ytc/AIdro_nF_Jg6_X_p_u_C8w_j_u_J_J_J_J_J_J_J_J_J_J=s576-c-k-c0x00ffffff-no-rj'
+    },
+    {
+      'name': 'Sidhu Moose Wala',
+      'query': 'sidhu moose wala best hits',
+      'image':
+          'https://yt3.googleusercontent.com/ytc/AIdro_m9_f9_f9_f9_f9_f9_f9_f9_f9_f9_f9_f9_f9=s576-c-k-c0x00ffffff-no-rj'
+    },
+    {
+      'name': 'Diljit Dosanjh',
+      'query': 'diljit dosanjh latest 2024 hits',
+      'image':
+          'https://yt3.googleusercontent.com/ytc/AIdro_l8_l8_l8_l8_l8_l8_l8_l8_l8_l8_l8_l8_l8=s576-c-k-c0x00ffffff-no-rj'
+    },
+    {
+      'name': 'The Weeknd',
+      'query': 'the weeknd popular hits mix',
+      'image':
+          'https://yt3.googleusercontent.com/ytc/AIdro_k7_k7_k7_k7_k7_k7_k7_k7_k7_k7_k7_k7_k7=s576-c-k-c0x00ffffff-no-rj'
+    },
+    {
+      'name': 'Taylor Swift',
+      'query': 'taylor swift eras tour mix',
+      'image':
+          'https://yt3.googleusercontent.com/ytc/AIdro_j6_j6_j6_j6_j6_j6_j6_j6_j6_j6_j6_j6_j6=s576-c-k-c0x00ffffff-no-rj'
+    },
+    {
+      'name': 'AP Dhillon',
+      'query': 'ap dhillon best of brown munde',
+      'image':
+          'https://yt3.googleusercontent.com/ytc/AIdro_i5_i5_i5_i5_i5_i5_i5_i5_i5_i5_i5_i5_i5=s576-c-k-c0x00ffffff-no-rj'
     },
   ];
 
@@ -103,31 +142,49 @@ class _ExploreScreenState extends State<ExploreScreen> {
       'label': 'Hip Hop',
       'count': '2.5k tracks',
       'colors': [const Color(0xFFEC4899), const Color(0xFF8B5CF6)],
-      'query': 'hip hop hits'
+      'query': 'best hip hop playlists india global'
     },
     {
       'label': 'Lo-Fi',
       'count': '1.8k tracks',
       'colors': [const Color(0xFF0EA5E9), const Color(0xFF2D0A4E)],
-      'query': 'lofi beats'
+      'query': 'best lofi chill beats for study study'
     },
     {
       'label': 'Electronic',
       'count': '3k tracks',
       'colors': [const Color(0xFF8B5CF6), const Color(0xFFEC4899)],
-      'query': 'electronic dance'
+      'query': 'best edm electronic dance music mix'
     },
     {
       'label': 'Punjabi',
       'count': '1.2k tracks',
       'colors': [const Color(0xFFFF6B00), const Color(0xFFEC4899)],
-      'query': 'punjabi songs'
+      'query': 'best punjabi bhangra party songs'
     },
     {
       'label': 'Rock',
       'count': '900 tracks',
       'colors': [const Color(0xFFFF3D00), const Color(0xFFFF6B00)],
-      'query': 'rock classics'
+      'query': 'best rock classics and alternative mix'
+    },
+    {
+      'label': 'Bollywood',
+      'count': '5k tracks',
+      'colors': [const Color(0xFFEC4899), const Color(0xFFFF6B00)],
+      'query': 'best bollywood film songs collection'
+    },
+    {
+      'label': 'Classical',
+      'count': '1k tracks',
+      'colors': [const Color(0xFF0EA5E9), const Color(0xFF10B981)],
+      'query': 'best classical piano violin orchestra'
+    },
+    {
+      'label': 'Jazz',
+      'count': '700 tracks',
+      'colors': [const Color(0xFFF59E0B), const Color(0xFFFF3D00)],
+      'query': 'best jazz blues smooth music'
     },
   ];
 
@@ -155,17 +212,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
     });
   }
 
-  void _openPlaylistModal(BuildContext ctx, PlayerProvider player, String query,
-      String title) async {
-    player.search(query);
+  void _openCategoryDetail(String title, String query) {
     Navigator.push(
-        ctx,
+        context,
         MaterialPageRoute(
-            builder: (_) => PlaylistScreen(
-                  playlistId: query,
+            builder: (_) => CategoryDetailScreen(
                   title: title,
-                  thumbnail: '',
-                  owner: '',
+                  query: query,
                 )));
   }
 
@@ -342,7 +395,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
             style: TextStyle(color: color ?? Colors.white, fontSize: 15)),
         onTap: onTap,
       );
-
   @override
   Widget build(BuildContext context) {
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
@@ -367,6 +419,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 SliverToBoxAdapter(child: _discoveryCardGrid(player)),
                 SliverToBoxAdapter(child: _sectionHeader('Vibe Stations')),
                 SliverToBoxAdapter(child: _vibeStationsRow(player)),
+                SliverToBoxAdapter(child: _sectionHeader('Popular Singers')),
+                SliverToBoxAdapter(child: _singersRow(player)),
                 SliverToBoxAdapter(child: _sectionHeader('Explore by Genre')),
                 SliverToBoxAdapter(child: _genreGrid(player)),
                 const SliverToBoxAdapter(child: SizedBox(height: 120)),
@@ -377,6 +431,69 @@ class _ExploreScreenState extends State<ExploreScreen> {
       );
     });
   }
+
+  Widget _singersRow(PlayerProvider player) => SizedBox(
+        height: 160,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          itemCount: _singers.length,
+          itemBuilder: (_, i) {
+            final artist = _singers[i];
+            return GestureDetector(
+              onTap: () => _openCategoryDetail(
+                  artist['name'] as String, artist['query'] as String),
+              child: Container(
+                width: 100,
+                margin: const EdgeInsets.only(right: 20),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 100,
+                      height: 100,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF8B5CF6).withOpacity(0.2),
+                            blurRadius: 15,
+                            offset: const Offset(0, 8),
+                          )
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(50),
+                        child: CachedNetworkImage(
+                          imageUrl: artist['image'] as String,
+                          fit: BoxFit.cover,
+                          placeholder: (_, __) =>
+                              Container(color: const Color(0xFF1A1A2E)),
+                          errorWidget: (_, __, ___) => Container(
+                            color: const Color(0xFF1A1A2E),
+                            child: const Icon(Icons.person,
+                                color: Colors.white12, size: 40),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      artist['name'] as String,
+                      maxLines: 1,
+                      textAlign: TextAlign.center,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      );
 
   Widget _topBar() => Padding(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
@@ -491,8 +608,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
           return GestureDetector(
             onTap: () {
               setState(() => _selectedCategory = i);
-              _openPlaylistModal(context, player, cat['query'] as String,
-                  cat['label'] as String);
+              _openCategoryDetail(
+                  cat['label'] as String, cat['query'] as String);
             },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 300),
@@ -698,11 +815,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     bottom: 15,
                     right: 15,
                     child: GestureDetector(
-                      onTap: () => _openPlaylistModal(
-                          context,
-                          player,
-                          station['query'] as String? ?? 'chill lofi mix',
-                          station['title'] as String),
+                      onTap: () => _openCategoryDetail(
+                          station['title'] as String,
+                          station['query'] as String? ?? 'chill lofi mix'),
                       child: Container(
                         width: 40,
                         height: 40,
@@ -846,8 +961,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
           itemBuilder: (_, i) {
             final g = _genres[i];
             return GestureDetector(
-              onTap: () => _openPlaylistModal(
-                  context, player, g['query'] as String, g['label'] as String),
+              onTap: () => _openCategoryDetail(
+                  g['label'] as String, g['query'] as String),
               child: Container(
                 width: 140,
                 margin: const EdgeInsets.only(right: 14),

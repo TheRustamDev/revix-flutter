@@ -35,6 +35,11 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     {'label': 'Focus'},
     {'label': 'Chill'},
     {'label': 'Party'},
+    {'label': 'Sleep'},
+    {'label': 'Romance'},
+    {'label': 'Decades'},
+    {'label': 'Classical'},
+    {'label': 'Anime'},
   ];
 
   final List<Map<String, dynamic>> _madeForYou = [
@@ -73,6 +78,33 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       'accent': const Color(0xFFEC4899),
       'query': 'best romantic songs hindi 2024',
       'type': 'heart'
+    },
+    {
+      'title': 'Flashback',
+      'subtitle': 'Best of the decades',
+      'c1': const Color(0xFF1A1A00),
+      'c2': const Color(0xFF000000),
+      'accent': const Color(0xFFFFD700),
+      'query': '90s bollywood hits collection',
+      'type': 'wave'
+    },
+    {
+      'title': 'K-Pop Fresh',
+      'subtitle': 'Latest from Seoul',
+      'c1': const Color(0xFF001A1A),
+      'c2': const Color(0xFF000000),
+      'accent': const Color(0xFF0EA5E9),
+      'query': 'new kpop releases 2024 hits',
+      'type': 'orb'
+    },
+    {
+      'title': 'Soulful Sufi',
+      'subtitle': 'Divine melodies',
+      'c1': const Color(0xFF1A0A00),
+      'c2': const Color(0xFF000000),
+      'accent': const Color(0xFFEC4899),
+      'query': 'best sufi songs arijit nusrat rabbi',
+      'type': 'wave'
     },
   ];
 
@@ -1002,7 +1034,6 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               style: const TextStyle(color: Colors.white54, fontSize: 11)),
         ]),
       );
-
   Widget _madeForYouRow(PlayerProvider player) => SizedBox(
         height: 170,
         child: ListView.builder(
