@@ -24,11 +24,22 @@ class PlaylistScreen extends StatefulWidget {
 }
 
 class _PlaylistScreenState extends State<PlaylistScreen> {
+  List<SongResult> _playlistSongs = [];
+  bool _isLoading = true;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<PlayerProvider>().fetchPlaylistContent(widget.playlistId);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final player = context.read<PlayerProvider>();
+      final songs =
+          await player.innerTube.getPlaylistDetails(widget.playlistId);
+      if (mounted) {
+        setState(() {
+          _playlistSongs = songs;
+          _isLoading = false;
+        });
+      }
     });
   }
 
@@ -39,7 +50,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
         return Scaffold(
           backgroundColor: Colors.transparent,
           body: Container(
-            decoration: BoxDecoration(gradient: theme.bg),
+            color: Colors.transparent,
             child: CustomScrollView(
               slivers: [
                 // Hero header
@@ -61,7 +72,13 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                     // Thumbnail
                     widget.thumbnail.isNotEmpty
                         ? CachedNetworkImage(
-                            imageUrl: widget.thumbnail, fit: BoxFit.cover)
+                            memCacheWidth: 576,
+                            memCacheHeight: 576,
+                            maxWidthDiskCache: 576,
+                            maxHeightDiskCache: 576,
+                            filterQuality: FilterQuality.high,
+                            imageUrl: widget.thumbnail,
+                            fit: BoxFit.cover)
                         : Container(
                             decoration: const BoxDecoration(
                                 gradient: LinearGradient(colors: [
@@ -85,12 +102,16 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(widget.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
                                       color: Colors.white,
                                       fontSize: 26,
                                       fontWeight: FontWeight.w900)),
                               if (widget.owner.isNotEmpty)
                                 Text(widget.owner,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
                                         color: Colors.white60, fontSize: 14)),
                               const SizedBox(height: 12),
@@ -98,9 +119,8 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                               Row(children: [
                                 GestureDetector(
                                     onTap: () {
-                                      if (player.searchResults.isNotEmpty) {
-                                        player.playSongList(
-                                            player.searchResults,
+                                      if (_playlistSongs.isNotEmpty) {
+                                        player.playSongList(_playlistSongs,
                                             startIndex: 0);
                                       }
                                     },
@@ -132,9 +152,8 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                                 const SizedBox(width: 12),
                                 GestureDetector(
                                     onTap: () {
-                                      final results = player.searchResults;
-                                      if (results.isNotEmpty) {
-                                        for (final s in results) {
+                                      if (_playlistSongs.isNotEmpty) {
+                                        for (final s in _playlistSongs) {
                                           player.addToQueue(s);
                                         }
                                         ScaffoldMessenger.of(context)
@@ -165,24 +184,24 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                 SliverToBoxAdapter(
                     child: Padding(
                         padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-                        child: Text('${player.searchResults.length} songs',
+                        child: Text('${_playlistSongs.length} songs',
                             style: const TextStyle(
                                 color: Colors.white54, fontSize: 13)))),
 
                 // Songs list
-                player.isSearching
+                _isLoading
                     ? const SliverFillRemaining(
                         child: Center(
                             child: CircularProgressIndicator(
                                 color: Color(0xFF8B5CF6))))
-                    : player.searchResults.isEmpty
+                    : _playlistSongs.isEmpty
                         ? const SliverFillRemaining(
                             child: Center(
                                 child: Text('No songs found',
                                     style: TextStyle(color: Colors.white38))))
                         : SliverList(
                             delegate: SliverChildBuilderDelegate((ctx, i) {
-                            final s = player.searchResults[i];
+                            final s = _playlistSongs[i];
                             final isPlaying = player.currentSong?.id == s.id &&
                                 player.isPlaying;
                             return ListTile(
@@ -194,6 +213,11 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                                       alignment: Alignment.center,
                                       children: [
                                         CachedNetworkImage(
+                                            memCacheWidth: 576,
+                                            memCacheHeight: 576,
+                                            maxWidthDiskCache: 576,
+                                            maxHeightDiskCache: 576,
+                                            filterQuality: FilterQuality.high,
                                             imageUrl: s.thumbnail,
                                             width: 52,
                                             height: 52,
@@ -236,9 +260,9 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                                       color: Colors.white24, size: 20),
                                   onPressed: () =>
                                       _showSongOptions(context, s, player)),
-                              onTap: () => player.playSong(s),
+                              onTap: () => player.playTrack(songToMediaItem(s)),
                             );
-                          }, childCount: player.searchResults.length)),
+                          }, childCount: _playlistSongs.length)),
 
                 const SliverToBoxAdapter(child: SizedBox(height: 120)),
               ],
@@ -266,7 +290,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
               title:
                   const Text('Play Now', style: TextStyle(color: Colors.white)),
               onTap: () {
-                player.playSong(s);
+                player.playTrack(songToMediaItem(s));
                 Navigator.pop(context);
               }),
           ListTile(

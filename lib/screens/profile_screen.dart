@@ -1,7 +1,11 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../providers/player_provider.dart';
+import '../innertube/innertube_client.dart';
+import 'settings_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -34,7 +38,7 @@ class _ProfileScreenState extends State<ProfileScreen>
   Widget build(BuildContext context) {
     final player = Provider.of<PlayerProvider>(context);
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Column(
@@ -67,7 +71,10 @@ class _ProfileScreenState extends State<ProfileScreen>
                     }),
                     const SizedBox(width: 15),
                     _iconBtn(Icons.settings_outlined, onTap: () {
-                      _showSettingsSheet(context);
+                      Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const SettingsScreen()));
                     }),
                   ],
                 ),
@@ -249,11 +256,21 @@ class _ProfileScreenState extends State<ProfileScreen>
                           colors: [Color(0xFF8B5CF6), Color(0xFFEC4899)],
                         ),
                       ),
-                      child: const CircleAvatar(
+                      child: CircleAvatar(
                         backgroundColor: Colors.black,
-                        child: ClipOval(
-                          child:
-                              Icon(Icons.person, color: Colors.white, size: 40),
+                        child: Text(
+                          (Hive.box('settings').get('display_name',
+                                      defaultValue: 'M') as String)
+                                  .isNotEmpty
+                              ? (Hive.box('settings').get('display_name',
+                                      defaultValue: 'M') as String)[0]
+                                  .toUpperCase()
+                              : 'M',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 32,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
                     ),
@@ -264,23 +281,24 @@ class _ProfileScreenState extends State<ProfileScreen>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Row(
+                        Row(
                           children: [
                             Text(
-                              'Melophile',
-                              style: TextStyle(
+                              Hive.box('settings').get('display_name',
+                                  defaultValue: 'Melophile'),
+                              style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 20,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                            SizedBox(width: 6),
-                            Icon(Icons.check_circle,
+                            const SizedBox(width: 6),
+                            const Icon(Icons.check_circle,
                                 color: Color(0xFF8B5CF6), size: 16),
                           ],
                         ),
                         const Text(
-                          '@melophile.one',
+                          '@music.lover',
                           style: TextStyle(color: Colors.white38, fontSize: 13),
                         ),
                         const SizedBox(height: 8),
@@ -300,7 +318,14 @@ class _ProfileScreenState extends State<ProfileScreen>
                       onTap: _showPremiumDetails),
                   const SizedBox(width: 12),
                   _badgeInfo(
-                      'Joined', 'May 2023', Icons.calendar_month_outlined,
+                      'Joined',
+                      Hive.box('settings').get('member_since') ??
+                          () {
+                            final year = DateTime.now().year.toString();
+                            Hive.box('settings').put('member_since', year);
+                            return year;
+                          }(),
+                      Icons.calendar_month_outlined,
                       onTap: _showJoinedHistory),
                   const Spacer(),
                   GestureDetector(
@@ -400,11 +425,151 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   void _handleStatTap(String label, String query) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('Opening $label...'),
-      backgroundColor: const Color(0xFF8B5CF6),
-      behavior: SnackBarBehavior.floating,
-    ));
+    final player = context.read<PlayerProvider>();
+    if (label == 'Playlists') {
+      _showCollectionSheet(
+        context: context,
+        title: 'Your Playlists',
+        songs: player.getLikedSongs(),
+        message: 'Playlist creation coming soon. Here is an auto-playlist.',
+        player: player,
+      );
+    } else if (label == 'Liked') {
+      _showCollectionSheet(
+        context: context,
+        title: 'Liked Songs',
+        songs: player.getLikedSongs(),
+        player: player,
+      );
+    } else if (label == 'Downloads') {
+      _showCollectionSheet(
+        context: context,
+        title: 'Downloads',
+        songs: player.getDownloadedSongs(),
+        player: player,
+      );
+    } else if (label == 'Songs') {
+      _showCollectionSheet(
+        context: context,
+        title: 'All Songs',
+        songs: player.recentlyPlayed
+            .map((m) => SongResult(
+                id: m.id,
+                title: m.title,
+                artist: m.artist ?? '',
+                thumbnail: m.artUri?.toString() ?? ''))
+            .toList(),
+        player: player,
+      );
+    }
+  }
+
+  void _showCollectionSheet({
+    required BuildContext context,
+    required String title,
+    required List<dynamic> songs,
+    String? message,
+    required PlayerProvider player,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0D0D1A),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (_) => Container(
+        height: MediaQuery.of(context).size.height * 0.75,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+        child: Column(
+          children: [
+            Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: Colors.white12,
+                    borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Text(title,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold)),
+                const Spacer(),
+                Text('${songs.length} songs',
+                    style:
+                        const TextStyle(color: Colors.white54, fontSize: 13)),
+              ],
+            ),
+            if (message != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF8B5CF6).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(message,
+                    style: const TextStyle(
+                        color: Color(0xFF8B5CF6), fontSize: 13)),
+              )
+            ],
+            const SizedBox(height: 20),
+            Expanded(
+              child: songs.isEmpty
+                  ? const Center(
+                      child: Text("Empty vault",
+                          style: TextStyle(color: Colors.white24)))
+                  : ListView.builder(
+                      itemCount: songs.length,
+                      itemBuilder: (_, i) {
+                        final song = songs[i];
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          onTap: () {
+                            player.playSong(song);
+                            Navigator.pop(context);
+                          },
+                          leading: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: CachedNetworkImage(
+                              memCacheWidth: 576,
+                              memCacheHeight: 576,
+                              maxWidthDiskCache: 576,
+                              maxHeightDiskCache: 576,
+                              filterQuality: FilterQuality.high,
+                              imageUrl: song.thumbnail,
+                              width: 50,
+                              height: 50,
+                              fit: BoxFit.cover,
+                              placeholder: (_, __) =>
+                                  Container(color: Colors.white10),
+                              errorWidget: (_, __, ___) => const Icon(
+                                  Icons.music_note,
+                                  color: Colors.white24),
+                            ),
+                          ),
+                          title: Text(song.title,
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600),
+                              maxLines: 1),
+                          subtitle: Text(song.artist ?? '',
+                              style: const TextStyle(
+                                  color: Colors.white38, fontSize: 12),
+                              maxLines: 1),
+                          trailing: const Icon(Icons.play_circle_fill,
+                              color: Color(0xFF0EA5E9)),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showAvatarOptions() {
@@ -435,16 +600,37 @@ class _ProfileScreenState extends State<ProfileScreen>
               leading:
                   const Icon(Icons.photo_library_outlined, color: Colors.white),
               title: const Text('Change Photo',
-                  style: TextStyle(color: Colors.white))),
+                  style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Gallery access coming in next update'),
+                    backgroundColor: Color(0xFF8B5CF6),
+                    behavior: SnackBarBehavior.floating));
+              }),
           ListTile(
               leading:
                   const Icon(Icons.face_unlock_rounded, color: Colors.white),
               title: const Text('Customize Avatar',
-                  style: TextStyle(color: Colors.white))),
+                  style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Avatar customization coming soon'),
+                    backgroundColor: Color(0xFF8B5CF6),
+                    behavior: SnackBarBehavior.floating));
+              }),
           ListTile(
               leading: const Icon(Icons.palette_outlined, color: Colors.white),
               title: const Text('Profile Themes',
-                  style: TextStyle(color: Colors.white))),
+                  style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Profile themes coming soon'),
+                    backgroundColor: Color(0xFF8B5CF6),
+                    behavior: SnackBarBehavior.floating));
+              }),
           const SizedBox(height: 20),
         ],
       ),
@@ -485,86 +671,141 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   void _showPremiumDetails() {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Plan: REVIX One Premium Gold'),
-        behavior: SnackBarBehavior.floating));
-  }
-
-  void _showJoinedHistory() {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Account Milestone: 1 Year Anniversary in 2 months!'),
-        behavior: SnackBarBehavior.floating));
-  }
-
-  void _showSettingsSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF0D0D1A),
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (_) => Consumer<PlayerProvider>(
-        builder: (context, player, _) => Column(
+      builder: (_) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 12),
+          Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: Colors.white12,
+                  borderRadius: BorderRadius.circular(2))),
+          const SizedBox(height: 20),
+          const Icon(Icons.diamond_rounded, color: Color(0xFFFFD700), size: 48),
+          const SizedBox(height: 12),
+          const Text('REVIX One Premium Gold',
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          const Text('Unlimited streaming • Offline downloads • No ads',
+              style: TextStyle(color: Colors.white54, fontSize: 13)),
+          const SizedBox(height: 30),
+        ],
+      ),
+    );
+  }
+
+  void _showJoinedHistory() {
+    final memberSince = Hive.box('settings').get('member_since') ??
+        DateTime.now().year.toString();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0D0D1A),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (_) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 12),
+          Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: Colors.white12,
+                  borderRadius: BorderRadius.circular(2))),
+          const SizedBox(height: 20),
+          const Icon(Icons.calendar_month_rounded,
+              color: Color(0xFF8B5CF6), size: 48),
+          const SizedBox(height: 12),
+          Text('Member Since $memberSince',
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          const Text('Thank you for being part of the REVIX family!',
+              style: TextStyle(color: Colors.white54, fontSize: 13)),
+          const SizedBox(height: 30),
+        ],
+      ),
+    );
+  }
+
+  void _showProfileEditor() {
+    final nameCtrl = TextEditingController(text: 'Aris');
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0D0D1A),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (_) => Padding(
+        padding: EdgeInsets.fromLTRB(
+            24, 20, 24, MediaQuery.of(context).viewInsets.bottom + 30),
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: 12),
             Container(
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
                     color: Colors.white12,
                     borderRadius: BorderRadius.circular(2))),
-            const Padding(
-              padding: EdgeInsets.all(20),
-              child: Text('Settings',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold)),
-            ),
-            SwitchListTile(
-              secondary:
-                  const Icon(Icons.flash_on_rounded, color: Color(0xFF8B5CF6)),
-              title: const Text('Auto-play',
-                  style: TextStyle(color: Colors.white)),
-              subtitle: const Text('Play similar songs automatically',
-                  style: TextStyle(color: Colors.white38, fontSize: 11)),
-              value: player.autoPlay,
-              onChanged: (v) => player.setAutoPlay(v),
-            ),
-            ListTile(
-              leading: const Icon(Icons.high_quality_rounded,
-                  color: Color(0xFFEC4899)),
-              title: const Text('Audio Quality',
-                  style: TextStyle(color: Colors.white)),
-              trailing: Text(player.audioQuality,
-                  style: const TextStyle(color: Color(0xFFEC4899))),
-              onTap: () {
-                final qualities = ['Normal', 'High', 'Lossless'];
-                final next = qualities[
-                    (qualities.indexOf(player.audioQuality) + 1) %
-                        qualities.length];
-                player.setAudioQuality(next);
-              },
-            ),
-            const Divider(color: Colors.white10),
-            ListTile(
-              leading:
-                  const Icon(Icons.delete_sweep_rounded, color: Colors.white60),
-              title: const Text('Clear History',
-                  style: TextStyle(color: Colors.white)),
-              onTap: () => Navigator.pop(context),
+            const SizedBox(height: 20),
+            const Text('Edit Profile',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold)),
+            const SizedBox(height: 24),
+            TextField(
+              controller: nameCtrl,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                labelText: 'Display Name',
+                labelStyle: const TextStyle(color: Colors.white38),
+                filled: true,
+                fillColor: const Color(0xFF1A1A2E),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none),
+              ),
             ),
             const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF8B5CF6),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+                onPressed: () {
+                  Hive.box('settings').put('display_name', nameCtrl.text);
+                  Navigator.pop(context);
+                  setState(() {});
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Profile updated!'),
+                      backgroundColor: Color(0xFF8B5CF6),
+                      behavior: SnackBarBehavior.floating));
+                },
+                child: const Text('Save',
+                    style: TextStyle(color: Colors.white, fontSize: 16)),
+              ),
+            ),
           ],
         ),
       ),
     );
-  }
-
-  void _showProfileEditor() {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Opening Profile Editor...'),
-        behavior: SnackBarBehavior.floating));
   }
 
   void _showTimeframeSheet() {
@@ -617,14 +858,17 @@ class _ProfileScreenState extends State<ProfileScreen>
                 size: const Size(100, 100),
                 painter: _CircleChartPainter(),
               ),
-              const Column(
+              Column(
                 children: [
-                  Text('32h 45m',
-                      style: TextStyle(
+                  Text(
+                      (player.recentlyPlayed.length * 4) > 60
+                          ? '${((player.recentlyPlayed.length * 4) / 60).toStringAsFixed(1)} hrs'
+                          : '${player.recentlyPlayed.length * 4} mins',
+                      style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
                           fontSize: 14)),
-                  Text('Total Listening',
+                  const Text('Total Listening',
                       style: TextStyle(color: Colors.white38, fontSize: 8)),
                 ],
               ),
@@ -653,36 +897,48 @@ class _ProfileScreenState extends State<ProfileScreen>
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    _bar('Mon', 0.4),
-                    _bar('Tue', 0.6),
-                    _bar('Wed', 0.3),
-                    _bar('Thu', 0.8),
-                    _bar('Fri', 0.5),
-                    _bar('Sat', 1.0, isSpecial: true),
-                    _bar('Sun', 0.7),
+                    ...() {
+                      final stats = player.getWeeklyStats();
+                      final maxVal =
+                          stats.values.fold(1, (max, v) => v > max ? v : max);
+                      final days = [
+                        'Mon',
+                        'Tue',
+                        'Wed',
+                        'Thu',
+                        'Fri',
+                        'Sat',
+                        'Sun'
+                      ];
+                      final now = DateTime.now().weekday;
+
+                      return List.generate(7, (i) {
+                        final weekday = i + 1; // 1=Mon, ..., 7=Sun
+                        final count = stats[weekday] ?? 0;
+                        final factor = (count / maxVal).clamp(0.1, 1.0);
+                        return _bar(days[i], factor,
+                            isSpecial: weekday == now, count: count);
+                      });
+                    }(),
                   ],
                 ),
                 const SizedBox(height: 8),
-                const Row(
+                Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('M',
-                        style: TextStyle(color: Colors.white38, fontSize: 8)),
-                    Text('T',
-                        style: TextStyle(color: Colors.white38, fontSize: 8)),
-                    Text('W',
-                        style: TextStyle(color: Colors.white38, fontSize: 8)),
-                    Text('T',
-                        style: TextStyle(color: Colors.white38, fontSize: 8)),
-                    Text('F',
-                        style: TextStyle(color: Colors.white38, fontSize: 8)),
-                    Text('S',
-                        style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 8,
-                            fontWeight: FontWeight.bold)),
-                    Text('S',
-                        style: TextStyle(color: Colors.white38, fontSize: 8)),
+                    ...['M', 'T', 'W', 'T', 'F', 'S', 'S']
+                        .asMap()
+                        .entries
+                        .map((e) {
+                      final isToday = (e.key + 1) == DateTime.now().weekday;
+                      return Text(e.value,
+                          style: TextStyle(
+                              color: isToday ? Colors.white70 : Colors.white38,
+                              fontSize: 8,
+                              fontWeight: isToday
+                                  ? FontWeight.bold
+                                  : FontWeight.normal));
+                    }),
                   ],
                 ),
               ],
@@ -693,13 +949,13 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _bar(String day, double heightFactor, {bool isSpecial = false}) {
+  Widget _bar(String day, double heightFactor,
+      {bool isSpecial = false, int count = 0}) {
     return GestureDetector(
       onTap: () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-            '$day: ${(heightFactor * 10).toStringAsFixed(1)} listening hours'),
+        content: Text('$day: $count songs played'),
         backgroundColor:
-            isSpecial ? const Color(0xFFEC4899) : const Color(0xFF0F0F1E),
+            isSpecial ? const Color(0xFFEC4899) : const Color(0xFF1A1A2E),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 1),
       )),
@@ -724,16 +980,8 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Widget _personalityCard(PlayerProvider player) {
-    final genre = player.topGenre;
-    String personality = 'The Explorer';
-    String desc = 'You love discovering fresh sounds and trending hits.';
-    if (genre.toLowerCase().contains('punjabi')) {
-      personality = 'Desi Vibe';
-      desc = 'You carry the energy of Punjab in your soul.';
-    } else if (genre.toLowerCase().contains('lofi')) {
-      personality = 'Chill Soul';
-      desc = 'You find peace in the most gentle melodies.';
-    }
+    final personality = player.getMusicPersonality();
+    final desc = player.getPersonalityDesc();
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -775,31 +1023,138 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  void _showAllBadges() =>
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Opening Achievements Collection...'),
-          behavior: SnackBarBehavior.floating));
-  void _showAllArtists() =>
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Opening Artist Ranking History...'),
-          behavior: SnackBarBehavior.floating));
+  void _showAllBadges() {
+    final player = context.read<PlayerProvider>();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0D0D1A),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (_) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 12),
+          Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: Colors.white12,
+                  borderRadius: BorderRadius.circular(2))),
+          const SizedBox(height: 20),
+          const Text('All Achievements',
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Text('${_countUnlocked(player)} / 5 Unlocked',
+              style: const TextStyle(color: Color(0xFF8B5CF6), fontSize: 13)),
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: _badgesGrid(player),
+          ),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  int _countUnlocked(PlayerProvider player) {
+    int count = 1; // FIRST PLAY always unlocked
+    if (player.likedSongsCount >= 5) count++;
+    if (player.downloadedSongsCount >= 1) count++;
+    if (player.recentlyPlayed.length >= 20) count++;
+    if (player.recentlyPlayed.length >= 50) count++;
+    return count;
+  }
+
+  void _showAllArtists() {
+    final player = context.read<PlayerProvider>();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0D0D1A),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (_) => Container(
+        height: MediaQuery.of(context).size.height * 0.6,
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+                child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                        color: Colors.white12,
+                        borderRadius: BorderRadius.circular(2)))),
+            const SizedBox(height: 20),
+            const Text('Top Artists',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            Expanded(
+              child: player.topArtists.isEmpty
+                  ? const Center(
+                      child: Text('Play more music to see your top artists',
+                          style: TextStyle(color: Colors.white38)))
+                  : ListView.builder(
+                      itemCount: player.topArtists.length,
+                      itemBuilder: (_, i) {
+                        final name = player.topArtists[i];
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: const Color(0xFF1A1A2E),
+                            child: Text(name[0].toUpperCase(),
+                                style: const TextStyle(
+                                    color: Color(0xFF8B5CF6),
+                                    fontWeight: FontWeight.bold)),
+                          ),
+                          title: Text('#${i + 1}  $name',
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold)),
+                          trailing: const Icon(Icons.play_circle_filled,
+                              color: Color(0xFF8B5CF6)),
+                          onTap: () {
+                            Navigator.pop(context);
+                            player.search(name);
+                          },
+                        );
+                      }),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _badgesGrid(PlayerProvider player) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        _badgeItem(Icons.headphones_rounded, 'VIBE MASTER', '50 Hours',
-            [const Color(0xFF8B5CF6), const Color(0xFF00C2FF)], 'Legendary'),
+        _badgeItem(Icons.play_arrow_rounded, 'FIRST PLAY', 'Welcome',
+            [const Color(0xFF8B5CF6), const Color(0xFF00C2FF)], 'Common'),
+        if (player.likedSongsCount >= 5)
+          _badgeItem(Icons.favorite_rounded, 'LIKED 5', 'Taste Maker',
+              [const Color(0xFFFF6B00), const Color(0xFFFFB800)], 'Rare'),
+        if (player.downloadedSongsCount >= 1)
+          _badgeItem(Icons.download_rounded, 'DOWNLOADED', 'Offline Ready',
+              [const Color(0xFFEC4899), const Color(0xFF8B5CF6)], 'Rare'),
+        if (player.recentlyPlayed.length >= 20)
+          _badgeItem(Icons.explore_rounded, 'EXPLORER', '20+ Songs',
+              [const Color(0xFF00C2FF), const Color(0xFF8B5CF6)], 'Epic'),
         _badgeItem(
-            Icons.local_fire_department_rounded,
-            'TREND SETTER',
-            '100 Songs',
-            [const Color(0xFFFF6B00), const Color(0xFFFFB800)],
-            'Epic'),
-        _badgeItem(Icons.star_rounded, 'EARLY EXPLORER', 'New Release',
-            [const Color(0xFFEC4899), const Color(0xFF8B5CF6)], 'Rare'),
-        _badgeItem(Icons.album_rounded, 'GENRE LOVER', '10+ Genres',
-            [const Color(0xFF00C2FF), const Color(0xFF8B5CF6)], 'Rare'),
+            Icons.nightlife_rounded,
+            'NIGHT OWL',
+            player.recentlyPlayed.length >= 50 ? 'Unlocked' : 'Locked',
+            player.recentlyPlayed.length >= 50
+                ? [const Color(0xFF8B5CF6), const Color(0xFFEC4899)]
+                : [Colors.grey.shade900, Colors.grey.shade800],
+            'Legendary'),
       ],
     );
   }
@@ -875,18 +1230,32 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Widget _topArtistsList(PlayerProvider player) {
-    final artists = player.topArtists;
-    if (artists.isEmpty) {
+    final recent = player.recentlyPlayed;
+    if (recent.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 20),
-        child: Text('Listen to music to see your top artists!',
+        child: Text('Play some songs first',
             style: TextStyle(color: Colors.white24, fontSize: 13)),
       );
     }
+
+    final Map<String, int> artistCounts = {};
+    for (var song in recent) {
+      final artist = song.artist ?? 'Unknown Artist';
+      if (artist.isNotEmpty) {
+        artistCounts[artist] = (artistCounts[artist] ?? 0) + 1;
+      }
+    }
+
+    final sorted = artistCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    final topArtists = sorted.take(5).map((e) => e.key).toList();
+
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
-        children: artists.asMap().entries.map((e) {
+        children: topArtists.asMap().entries.map((e) {
           final idx = e.key;
           final name = e.value;
           final colors = [

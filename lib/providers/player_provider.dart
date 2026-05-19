@@ -15,13 +15,23 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:path/path.dart' as p;
 import 'theme_provider.dart';
 
-MediaItem songToMediaItem(SongResult song) => MediaItem(
-      id: song.id,
-      title: song.title,
-      artist: song.artist,
-      artUri: song.thumbnail.isNotEmpty ? Uri.parse(song.thumbnail) : null,
-      extras: {'videoId': song.id},
-    );
+String _hqThumb(String url) {
+  if (url.isEmpty) return url;
+  url = url.replaceAll(RegExp(r'=w\d+-h\d+.*'), '=w576-h576-l90-rj');
+  url = url.replaceAll(RegExp(r'=s\d+'), '=s576');
+  return url;
+}
+
+MediaItem songToMediaItem(SongResult song) {
+  return MediaItem(
+    id: song.id,
+    title: song.title,
+    artist: song.artist,
+    artUri:
+        song.thumbnail.isNotEmpty ? Uri.parse(_hqThumb(song.thumbnail)) : null,
+    extras: {'videoId': song.id},
+  );
+}
 
 class PlayerProvider extends ChangeNotifier {
   final MusicHandler _handler;
@@ -41,6 +51,7 @@ class PlayerProvider extends ChangeNotifier {
 
   ThemeProvider? _themeProvider;
   void attachTheme(ThemeProvider t) => _themeProvider = t;
+  InnerTubeClient get innerTube => _innerTube;
 
   MediaItem? currentSong;
   bool isPlaying = false;
@@ -91,8 +102,7 @@ class PlayerProvider extends ChangeNotifier {
   final Map<String, double> _artistWeight = {};
   final Map<String, double> _genreWeight = {};
   final Set<String> _playedIds = {};
-
-  // Track when current song started playing
+  final List<Map<String, dynamic>> _playHistory = []; // {id, timestamp}
   DateTime? _songStartTime;
 
   // Query history to avoid repeating
@@ -116,7 +126,6 @@ class PlayerProvider extends ChangeNotifier {
           currentSong != null &&
           currentSong!.id != item.id &&
           _songStartTime != null) {
-        // Check if previous song was skipped quickly
         final listenDuration =
             DateTime.now().difference(_songStartTime!).inSeconds;
         if (listenDuration < 30) {
@@ -141,11 +150,16 @@ class PlayerProvider extends ChangeNotifier {
         final remaining = queue.length - currentIndex - 1;
         if (remaining < 3) Future.microtask(() => _smartAutoQueue());
 
-        if (item.artUri != null) {
-          Future.microtask(
-              () => _themeProvider?.updateFromUrl(item.artUri.toString()));
+        // Trigger theme update
+        final thumbUrl =
+            item.artUri?.toString() ?? item.extras?['thumbnail']?.toString();
+        if (thumbUrl != null && thumbUrl.isNotEmpty) {
+          Future.microtask(() => _themeProvider?.updateFromUrl(thumbUrl));
         }
-        Future.microtask(() => fetchLyrics(item.id));
+        // Fetch lyrics - Wait 3 seconds for duration to be populated
+        Future.delayed(const Duration(seconds: 3), () {
+          if (currentSong?.id == item.id) fetchLyrics(item.id);
+        });
       }
       notifyListeners();
     });
@@ -183,19 +197,16 @@ class PlayerProvider extends ChangeNotifier {
 
     _positionSub = AudioService.position.listen((pos) {
       position = pos;
-      // Update active lyric line
       if (lyricLines.isNotEmpty) {
         final ms = pos.inMilliseconds;
-        int newIndex = 0;
-        for (int i = 0; i < lyricLines.length; i++) {
-          if (lyricLines[i].startMs <= ms)
-            newIndex = i;
-          else
+        int newIdx = 0;
+        for (int i = lyricLines.length - 1; i >= 0; i--) {
+          if (lyricLines[i].timeMs <= ms) {
+            newIdx = i;
             break;
+          }
         }
-        if (newIndex != currentLyricIndex) {
-          currentLyricIndex = newIndex;
-        }
+        currentLyricIndex = newIdx;
       }
       notifyListeners();
     });
@@ -256,6 +267,11 @@ class PlayerProvider extends ChangeNotifier {
     final played = _tasteBox!.get('played_ids', defaultValue: []);
     _playedIds.addAll((played as List).map((e) => e.toString()));
 
+    // Load Play History
+    final savedHistory = _libraryBox!.get('play_history', defaultValue: []);
+    _playHistory.addAll(
+        (savedHistory as List).map((e) => Map<String, dynamic>.from(e)));
+
     // Unique session seed based on time
     _sessionSeed = DateTime.now().millisecondsSinceEpoch % 10000;
   }
@@ -282,6 +298,7 @@ class PlayerProvider extends ChangeNotifier {
             })
         .toList();
     await _libraryBox?.put('recently_played', list);
+    await _libraryBox?.put('play_history', _playHistory);
   }
 
   void removeFromHistory(String id) {
@@ -553,6 +570,52 @@ class PlayerProvider extends ChangeNotifier {
     return sorted.first.key;
   }
 
+  Map<int, int> getWeeklyStats() {
+    final now = DateTime.now();
+    final sevenDaysAgo = now.subtract(const Duration(days: 7));
+    final stats = <int, int>{}; // 1 = Mon, 2 = Tue, ..., 7 = Sun
+
+    // Initialize with 0
+    for (int i = 1; i <= 7; i++) stats[i] = 0;
+
+    for (var play in _playHistory) {
+      final ts = play['timestamp'] as int;
+      final dt = DateTime.fromMillisecondsSinceEpoch(ts);
+      if (dt.isAfter(sevenDaysAgo)) {
+        stats[dt.weekday] = (stats[dt.weekday] ?? 0) + 1;
+      }
+    }
+    return stats;
+  }
+
+  String getMusicPersonality() {
+    final g = topGenre.toLowerCase();
+    if (g.contains('punjabi')) return 'Desi Vibe';
+    if (g.contains('lofi')) return 'Chill Soul';
+    if (g.contains('rock')) return 'Rockstar';
+    if (g.contains('pop')) return 'Pop Lover';
+    if (g.contains('romantic')) return 'Hopeless Romantic';
+    if (g.contains('workout')) return 'Gym Bro';
+    return 'The Explorer';
+  }
+
+  String getPersonalityDesc() {
+    final g = topGenre.toLowerCase();
+    if (g.contains('punjabi'))
+      return 'You carry the energy of Punjab in your soul.';
+    if (g.contains('lofi'))
+      return 'You find peace in the most gentle melodies.';
+    if (g.contains('rock'))
+      return 'You keep the energy high and the guitars loud.';
+    if (g.contains('pop'))
+      return 'You know all the latest hits and catchy choruses.';
+    if (g.contains('romantic'))
+      return 'You listen to songs that speak to the heart.';
+    if (g.contains('workout'))
+      return 'Your playlists are pure adrenaline and focus.';
+    return 'You love discovering fresh sounds and trending hits.';
+  }
+
   Future<void> playTrack(MediaItem item) async {
     final localPath = _downloadPaths[item.id];
     MediaItem itemToPlay = item;
@@ -569,8 +632,17 @@ class PlayerProvider extends ChangeNotifier {
     if (!recentlyPlayed.any((s) => s.id == itemToPlay.id)) {
       recentlyPlayed.insert(0, itemToPlay);
       if (recentlyPlayed.length > 50) recentlyPlayed.removeLast();
-      _saveRecent();
     }
+
+    // Log play with timestamp
+    _playHistory.add({
+      'id': itemToPlay.id,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+    // Keep last 1000 plays for analytics
+    if (_playHistory.length > 1000) _playHistory.removeAt(0);
+
+    _saveRecent();
     _boostSong(itemToPlay.artist ?? 'Unknown', itemToPlay.title, itemToPlay.id);
 
     if (!queue.any((q) => q.id == itemToPlay.id)) {
@@ -734,19 +806,6 @@ class PlayerProvider extends ChangeNotifier {
   String get durationLabel => _fmt(duration);
   String _fmt(Duration d) =>
       '${d.inMinutes.remainder(60).toString().padLeft(2, '0')}:${d.inSeconds.remainder(60).toString().padLeft(2, '0')}';
-
-  // Quality & Likes
-  void setAudioQuality(String val) {
-    audioQuality = val;
-    _settingsBox?.put('audioQuality', val);
-    notifyListeners();
-  }
-
-  void setAutoPlay(bool val) {
-    autoPlay = val;
-    _settingsBox?.put('autoPlay', val);
-    notifyListeners();
-  }
 
   bool isLiked(String? id) => id != null && _likedIds.contains(id);
   void toggleLike(MediaItem? item) {
@@ -998,12 +1057,43 @@ class PlayerProvider extends ChangeNotifier {
     currentLyricIndex = 0;
     notifyListeners();
     try {
-      lyricLines = await _innerTube.getTimedLyrics(videoId);
-    } catch (e) {
+      final title = currentSong?.title ?? '';
+      final artist = currentSong?.artist ?? '';
+      final durationSecs = duration.inSeconds;
+
+      // Try LRCLIB first for real timestamps
+      lyricLines =
+          await _innerTube.fetchSyncedLyrics(title, artist, durationSecs);
+
+      // Fallback to YouTube Music plain lyrics
+      if (lyricLines.isEmpty) {
+        lyricLines = await _innerTube.fetchLyrics(videoId);
+      }
+    } catch (_) {
       lyricLines = [];
     } finally {
       isLyricsLoading = false;
       notifyListeners();
     }
+  }
+
+  // Settings & Persistence
+  void setAudioQuality(String quality) {
+    audioQuality = quality;
+    _settingsBox?.put('audioQuality', quality);
+    notifyListeners();
+  }
+
+  void setSetting(String key, dynamic value) {
+    if (key == 'autoPlay') autoPlay = value;
+    _settingsBox?.put(key, value);
+    notifyListeners();
+  }
+
+  void setAutoPlay(bool val) => setSetting('autoPlay', val);
+
+  Future<void> clearCache() async {
+    // Logic to clear image cache or downloaded files if needed
+    notifyListeners();
   }
 }

@@ -24,42 +24,42 @@ class _ExploreScreenState extends State<ExploreScreen> {
     {
       'label': 'Trending',
       'icon': Icons.trending_up_rounded,
-      'query': 'trending music india 2024',
+      'query': 'trending songs india this week',
       'color': const Color(0xFFEC4899),
       'desc': 'Viral hits now'
     },
     {
       'label': 'New Releases',
       'icon': Icons.new_releases_rounded,
-      'query': 'latest 2024 official music videos',
+      'query': 'new hindi songs released this month 2024',
       'color': const Color(0xFF8B5CF6),
       'desc': 'Fresh for you'
     },
     {
       'label': 'Charts',
       'icon': Icons.bar_chart_rounded,
-      'query': 'global billboard top 100',
+      'query': 'youtube music top 50 india charts',
       'color': const Color(0xFF0EA5E9),
       'desc': 'Ranking hits'
     },
     {
       'label': 'Live & Events',
       'icon': Icons.live_tv_rounded,
-      'query': 'official live concert recordings',
+      'query': 'best live concert performance 2024',
       'color': const Color(0xFF10B981),
       'desc': 'Real-time vibes'
     },
     {
       'label': 'Podcasts',
       'icon': Icons.mic_external_on_rounded,
-      'query': 'ted talks story telling',
+      'query': 'hindi podcast storytelling show',
       'color': const Color(0xFFF59E0B),
-      'desc': 'Listen & learn'
+      'desc': 'Listen and learn'
     },
     {
       'label': 'Genres',
       'icon': Icons.grid_view_rounded,
-      'query': 'popular music mix',
+      'query': 'best of all genres hindi english punjabi mix',
       'color': const Color(0xFF6366F1),
       'desc': 'All music styles'
     },
@@ -297,12 +297,29 @@ class _ExploreScreenState extends State<ExploreScreen> {
             const Text('REVIX One Member',
                 style: TextStyle(color: Color(0xFF8B5CF6), fontSize: 13)),
             const SizedBox(height: 28),
-            _profileOption('Edit Profile', Icons.edit_rounded,
-                () => Navigator.pop(context)),
-            _profileOption('Liked Songs', Icons.favorite_rounded,
-                () => Navigator.pop(context)),
-            _profileOption('My Playlists', Icons.queue_music_rounded,
-                () => Navigator.pop(context)),
+            _profileOption('Edit Profile', Icons.edit_rounded, () {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content: Text('Profile customization coming soon'),
+                  backgroundColor: Color(0xFF8B5CF6),
+                  behavior: SnackBarBehavior.floating));
+            }),
+            _profileOption('Liked Songs', Icons.favorite_rounded, () {
+              Navigator.pop(context);
+              final player = context.read<PlayerProvider>();
+              final likedSongs = player.getLikedSongs();
+              if (likedSongs.isNotEmpty) {
+                player.playSongList(likedSongs);
+              }
+            }),
+            _profileOption('My Playlists', Icons.queue_music_rounded, () {
+              Navigator.pop(context);
+              // Navigate to library tab, which has playlists
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content: Text('Check your Library for playlists'),
+                  backgroundColor: Color(0xFF8B5CF6),
+                  behavior: SnackBarBehavior.floating));
+            }),
             const Divider(color: Colors.white12, height: 32),
             _profileOption(
               'Sign Out',
@@ -337,7 +354,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       return Scaffold(
         backgroundColor: Colors.transparent,
         body: Container(
-          decoration: BoxDecoration(gradient: theme.bg),
+          color: Colors.transparent,
           child: SafeArea(
             bottom: false,
             child: CustomScrollView(
@@ -345,11 +362,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
               slivers: [
                 SliverToBoxAdapter(child: _topBar()),
                 SliverToBoxAdapter(child: _header(player)),
+                SliverToBoxAdapter(child: _sectionHeader('Top Picks For You')),
+                SliverToBoxAdapter(child: _topPicksGrid(player)),
                 SliverToBoxAdapter(child: _discoveryCardGrid(player)),
                 SliverToBoxAdapter(child: _sectionHeader('Vibe Stations')),
                 SliverToBoxAdapter(child: _vibeStationsRow(player)),
-                SliverToBoxAdapter(child: _sectionHeader('Top Picks For You')),
-                SliverToBoxAdapter(child: _topPicksGrid(player)),
                 SliverToBoxAdapter(child: _sectionHeader('Explore by Genre')),
                 SliverToBoxAdapter(child: _genreGrid(player)),
                 const SliverToBoxAdapter(child: SizedBox(height: 120)),
@@ -746,6 +763,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     child: Stack(alignment: Alignment.center, children: [
                       s.thumbnail.isNotEmpty
                           ? CachedNetworkImage(
+                              memCacheWidth: 576,
+                              memCacheHeight: 576,
+                              maxWidthDiskCache: 576,
+                              maxHeightDiskCache: 576,
+                              filterQuality: FilterQuality.high,
                               imageUrl: s.thumbnail,
                               width: 50,
                               height: 50,
@@ -863,11 +885,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
       );
 
   void _handleSeeAll(String title) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('Exploring all $title...'),
-      behavior: SnackBarBehavior.floating,
-      backgroundColor: const Color(0xFF8B5CF6),
-    ));
+    final player = context.read<PlayerProvider>();
+    player.search(title);
+    _searchCtrl.text = title;
+    setState(() => _hasSearched = true);
   }
 
   void _showTrackOptionsMenu(SongResult s) {
@@ -886,7 +907,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
               leading: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: CachedNetworkImage(
-                      imageUrl: s.thumbnail, width: 40, height: 40)),
+                      memCacheWidth: 576,
+                      memCacheHeight: 576,
+                      maxWidthDiskCache: 576,
+                      maxHeightDiskCache: 576,
+                      filterQuality: FilterQuality.high,
+                      imageUrl: s.thumbnail,
+                      width: 40,
+                      height: 40)),
               title: Text(s.title,
                   style: const TextStyle(
                       color: Colors.white, fontWeight: FontWeight.bold)),
@@ -907,6 +935,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
             }),
             _profileOption('Share Song', Icons.share, () {
               Navigator.pop(context);
+              player.shareSong(s.title, s.artist, s.id);
             }),
           ],
         ),

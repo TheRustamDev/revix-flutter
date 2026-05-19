@@ -15,8 +15,16 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => PlayerProvider(musicHandler)),
-        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(
+          create: (_) => ThemeProvider(),
+        ),
+        ChangeNotifierProxyProvider<ThemeProvider, PlayerProvider>(
+          create: (_) => PlayerProvider(musicHandler),
+          update: (_, theme, player) {
+            player!.attachTheme(theme);
+            return player;
+          },
+        ),
       ],
       child: const RevixApp(),
     ),

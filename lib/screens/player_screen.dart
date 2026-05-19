@@ -6,6 +6,7 @@ import 'package:audio_service/audio_service.dart';
 import '../providers/theme_provider.dart';
 import '../providers/player_provider.dart';
 import '../innertube/innertube_client.dart';
+import 'canvas_screen.dart';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({super.key});
@@ -65,7 +66,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         return Scaffold(
           backgroundColor: Colors.transparent,
           body: Container(
-            decoration: BoxDecoration(gradient: theme.bg),
+            color: Colors.transparent,
             child: SafeArea(
               child: Padding(
                 padding:
@@ -211,6 +212,12 @@ class _PlayerScreenState extends State<PlayerScreen>
                                             child: player.currentSong?.artUri !=
                                                     null
                                                 ? CachedNetworkImage(
+                                                    memCacheWidth: 576,
+                                                    memCacheHeight: 576,
+                                                    maxWidthDiskCache: 576,
+                                                    maxHeightDiskCache: 576,
+                                                    filterQuality:
+                                                        FilterQuality.high,
                                                     imageUrl: player
                                                         .currentSong!.artUri
                                                         .toString(),
@@ -256,6 +263,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                                     child: Text(
                                       player.currentSong?.artist ??
                                           'Unknown Artist',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
                                         color: Colors.white54,
                                         fontSize: 14,
@@ -478,6 +487,25 @@ class _PlayerScreenState extends State<PlayerScreen>
                           ),
                         ),
                         const SizedBox(width: 12),
+                        // Canvas
+                        GestureDetector(
+                          onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => const CanvasScreen())),
+                          child: Container(
+                            width: 50,
+                            height: 50,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: const Color(0xFF1A1A2E),
+                              border: Border.all(color: Colors.white10),
+                            ),
+                            child: const Icon(Icons.palette_outlined,
+                                color: Color(0xFF0EA5E9), size: 20),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
                         // Lyrics
                         Expanded(
                           child: GestureDetector(
@@ -529,6 +557,11 @@ class _PlayerScreenState extends State<PlayerScreen>
                   ClipRRect(
                     borderRadius: BorderRadius.circular(10),
                     child: CachedNetworkImage(
+                        memCacheWidth: 576,
+                        memCacheHeight: 576,
+                        maxWidthDiskCache: 576,
+                        maxHeightDiskCache: 576,
+                        filterQuality: FilterQuality.high,
                         imageUrl: p.currentSong!.artUri.toString(),
                         width: 48,
                         height: 48,
@@ -740,6 +773,11 @@ class _PlayerScreenState extends State<PlayerScreen>
                               borderRadius: BorderRadius.circular(8),
                               child: item.artUri != null
                                   ? CachedNetworkImage(
+                                      memCacheWidth: 576,
+                                      memCacheHeight: 576,
+                                      maxWidthDiskCache: 576,
+                                      maxHeightDiskCache: 576,
+                                      filterQuality: FilterQuality.high,
                                       imageUrl: item.artUri.toString(),
                                       width: 46,
                                       height: 46,
@@ -856,6 +894,11 @@ class _PlayerScreenState extends State<PlayerScreen>
                                   leading: ClipRRect(
                                     borderRadius: BorderRadius.circular(8),
                                     child: CachedNetworkImage(
+                                      memCacheWidth: 576,
+                                      memCacheHeight: 576,
+                                      maxWidthDiskCache: 576,
+                                      maxHeightDiskCache: 576,
+                                      filterQuality: FilterQuality.high,
                                       imageUrl: item.thumbnail,
                                       width: 48,
                                       height: 48,
@@ -1226,61 +1269,156 @@ class _LyricsSheetState extends State<_LyricsSheet> {
             Expanded(
               child: player.isLyricsLoading
                   ? const Center(
-                      child:
-                          CircularProgressIndicator(color: Color(0xFF8B5CF6)))
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CircularProgressIndicator(
+                            color: Color(0xFF8B5CF6),
+                            strokeWidth: 2,
+                          ),
+                          SizedBox(height: 16),
+                          Text('Loading lyrics...',
+                              style: TextStyle(
+                                  color: Colors.white38, fontSize: 13)),
+                        ],
+                      ),
+                    )
                   : player.lyricLines.isEmpty
-                      ? const Center(
+                      ? Center(
                           child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                              Icon(Icons.lyrics_outlined,
-                                  color: Colors.white12, size: 60),
-                              SizedBox(height: 16),
-                              Text('No lyrics available',
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              ShaderMask(
+                                shaderCallback: (b) => const LinearGradient(
+                                  colors: [
+                                    Color(0xFF8B5CF6),
+                                    Color(0xFFEC4899)
+                                  ],
+                                ).createShader(b),
+                                child: const Icon(Icons.lyrics_outlined,
+                                    color: Colors.white, size: 80),
+                              ),
+                              const SizedBox(height: 20),
+                              const Text('No lyrics found',
                                   style: TextStyle(
-                                      color: Colors.white38, fontSize: 15)),
-                            ]))
-                      : ListView.builder(
-                          controller: _scrollCtrl,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 24, vertical: 20),
-                          itemCount: player.lyricLines.length,
-                          itemBuilder: (_, i) {
-                            final isActive = i == player.currentLyricIndex;
-                            final isPast = i < player.currentLyricIndex;
-                            return GestureDetector(
-                              onTap: () => player.seekTo(Duration(
-                                  milliseconds: player.lyricLines[i].startMs)),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 300),
-                                padding: const EdgeInsets.symmetric(
-                                    vertical: 10, horizontal: 12),
-                                margin: const EdgeInsets.only(bottom: 4),
-                                decoration: BoxDecoration(
-                                  color: isActive
-                                      ? const Color(0xFF8B5CF6)
-                                          .withOpacity(0.15)
-                                      : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  player.lyricLines[i].text,
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w700)),
+                              const SizedBox(height: 8),
+                              const Text(
+                                  'Lyrics work best for popular\nHindi and English songs',
+                                  textAlign: TextAlign.center,
                                   style: TextStyle(
-                                    color: isActive
-                                        ? Colors.white
-                                        : isPast
-                                            ? Colors.white24
-                                            : Colors.white54,
-                                    fontSize: isActive ? 18 : 15,
-                                    fontWeight: isActive
-                                        ? FontWeight.w800
-                                        : FontWeight.w400,
-                                    height: 1.5,
-                                  ),
+                                      color: Colors.white38, fontSize: 13)),
+                              const SizedBox(height: 24),
+                              GestureDetector(
+                                onTap: () => context
+                                    .read<PlayerProvider>()
+                                    .fetchLyrics(context
+                                            .read<PlayerProvider>()
+                                            .currentSong
+                                            ?.id ??
+                                        ''),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 28, vertical: 12),
+                                  decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(24),
+                                      gradient: const LinearGradient(colors: [
+                                        Color(0xFF8B5CF6),
+                                        Color(0xFFEC4899)
+                                      ])),
+                                  child: const Text('Try Again',
+                                      style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w700)),
                                 ),
                               ),
-                            );
-                          }),
+                            ],
+                          ),
+                        )
+                      // PREMIUM SYNCED LYRICS LIST
+                      : ShaderMask(
+                          shaderCallback: (bounds) => const LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black,
+                              Colors.black,
+                              Colors.transparent,
+                            ],
+                            stops: [0.0, 0.08, 0.92, 1.0],
+                          ).createShader(bounds),
+                          blendMode: BlendMode.dstIn,
+                          child: ListView.builder(
+                            controller: _scrollCtrl,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 28,
+                              vertical:
+                                  MediaQuery.of(context).size.height * 0.32,
+                            ),
+                            itemCount: player.lyricLines.length,
+                            itemBuilder: (_, i) {
+                              final isCurrent = i == player.currentLyricIndex;
+                              final distance =
+                                  (i - player.currentLyricIndex).abs();
+
+                              final opacity = isCurrent
+                                  ? 1.0
+                                  : (0.45 - distance * 0.08).clamp(0.08, 0.45);
+
+                              final scale = isCurrent
+                                  ? 1.0
+                                  : (1.0 - distance * 0.05).clamp(0.85, 0.95);
+
+                              return GestureDetector(
+                                onTap: () => player.seekTo(Duration(
+                                    milliseconds: player.lyricLines[i].timeMs)),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 400),
+                                  curve: Curves.easeOutCubic,
+                                  margin: EdgeInsets.symmetric(
+                                      vertical: isCurrent ? 12 : 6),
+                                  child: Transform.scale(
+                                    scale: scale,
+                                    alignment: Alignment.centerLeft,
+                                    child: AnimatedDefaultTextStyle(
+                                      duration:
+                                          const Duration(milliseconds: 400),
+                                      style: TextStyle(
+                                        fontSize: isCurrent ? 28 : 20,
+                                        fontWeight: isCurrent
+                                            ? FontWeight.w900
+                                            : FontWeight.w600,
+                                        color:
+                                            Colors.white.withOpacity(opacity),
+                                        height: 1.3,
+                                      ),
+                                      child: isCurrent
+                                          ? ShaderMask(
+                                              shaderCallback: (bounds) =>
+                                                  const LinearGradient(
+                                                colors: [
+                                                  Color(0xFFFFFFFF),
+                                                  Color(0xFFEC4899),
+                                                ],
+                                              ).createShader(bounds),
+                                              child: Text(
+                                                player.lyricLines[i].text,
+                                                style: const TextStyle(
+                                                    color: Colors.white),
+                                              ),
+                                            )
+                                          : Text(player.lyricLines[i].text),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
             ),
           ]),
         );

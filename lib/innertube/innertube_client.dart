@@ -28,6 +28,13 @@ class InnerTubeClient {
     },
   ));
 
+  String _hqThumb(String url) {
+    if (url.isEmpty) return url;
+    url = url.replaceAll(RegExp(r'=w\d+-h\d+.*'), '=w576-h576-l90-rj');
+    url = url.replaceAll(RegExp(r'=s\d+'), '=s576');
+    return url;
+  }
+
   // Get YouTube Music "Up Next" for a playing song
   Future<List<SongResult>> getUpNext(String videoId) async {
     try {
@@ -76,7 +83,10 @@ class InnerTubeClient {
             final thumb = r['thumbnail']?['thumbnails']?.last?['url'] ?? '';
             if (vid.isNotEmpty && title.isNotEmpty) {
               results.add(SongResult(
-                  id: vid, title: title, artist: artist, thumbnail: thumb));
+                  id: vid,
+                  title: title,
+                  artist: artist,
+                  thumbnail: _hqThumb(thumb)));
             }
           }
         }
@@ -90,10 +100,96 @@ class InnerTubeClient {
     }
   }
 
-  // Get Lyrics Browse ID
-  Future<String?> getLyricsBrowseId(String videoId) async {
+  List<LyricLine> _assignTimings(List<String> lines, int totalDurationMs) {
+    // Filter empty and section headers
+    final valid = lines
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty && !(l.startsWith('[') && l.endsWith(']')))
+        .toList();
+
+    if (valid.isEmpty) return [];
+
+    // Distribute total song duration across lines
+    // Longer lines get proportionally more time
+    final totalChars = valid.fold(0, (sum, l) => sum + l.length);
+    final List<LyricLine> result = [];
+
+    // Start at 3% in (skip intro silence)
+    int currentMs = (totalDurationMs * 0.03).round();
+    // End at 96% (skip outro)
+    final endMs = (totalDurationMs * 0.96).round();
+    final availableMs = endMs - currentMs;
+
+    for (final line in valid) {
+      result.add(LyricLine(text: line, timeMs: currentMs));
+      // Time proportional to character count
+      final fraction = line.length / totalChars;
+      currentMs += (availableMs * fraction).round();
+    }
+
+    return result;
+  }
+
+  Future<List<LyricLine>> fetchSyncedLyrics(
+      String title, String artist, int durationSecs) async {
     try {
-      final response = await _dio.post(
+      // LRCLIB — free public API, no key needed
+      final query = Uri.encodeComponent('$artist $title');
+      final url = 'https://lrclib.net/api/search?q=$query';
+      final resp = await _dio.get(url,
+          options: Options(headers: {'User-Agent': 'REVIX One Music App'}));
+
+      if (resp.data == null) return [];
+      final results = resp.data as List;
+      if (results.isEmpty) return [];
+
+      // Find best match by duration
+      Map<String, dynamic>? best;
+      int bestDiff = 999999;
+      for (final r in results) {
+        if (r['syncedLyrics'] == null) continue;
+        final dur = (r['duration'] as num?)?.toInt() ?? 0;
+        final diff = (dur - durationSecs).abs();
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          best = r as Map<String, dynamic>;
+        }
+      }
+
+      if (best == null || best['syncedLyrics'] == null) {
+        // Fallback to plain lyrics with estimated timing
+        return fetchLyrics(title.isEmpty ? artist : title);
+      }
+
+      // Parse LRC format: [mm:ss.xx] lyric line
+      final lrc = best['syncedLyrics'] as String;
+      final lines = lrc.split('\n');
+      final List<LyricLine> result = [];
+      final timeRegex = RegExp(r'\[(\d+):(\d+\.\d+)\](.*)');
+
+      for (final line in lines) {
+        final match = timeRegex.firstMatch(line);
+        if (match == null) continue;
+        final mins = int.parse(match.group(1)!);
+        final secs = double.parse(match.group(2)!);
+        final text = match.group(3)!.trim();
+        if (text.isEmpty) continue;
+        final ms = (mins * 60 * 1000 + secs * 1000).round();
+        result.add(LyricLine(text: text, timeMs: ms));
+      }
+
+      return result;
+    } catch (e) {
+      print('LRCLIB error: $e');
+      return [];
+    }
+  }
+
+  Future<List<LyricLine>> fetchLyrics(String videoId,
+      {int songDurationMs = 210000}) async {
+    try {
+      // Step 1 — get the lyrics browseId from /next endpoint
+      final nextResp = await _dio.post(
         '/next?key=$_apiKey&prettyPrint=false',
         data: jsonEncode({
           "context": _context,
@@ -101,45 +197,74 @@ class InnerTubeClient {
           "isAudioOnly": true,
         }),
       );
-      final tabs = response.data['contents']
-              ?['singleColumnMusicWatchNextResultsRenderer']?['tabbedRenderer']
-          ?['watchNextTabbedResultsRenderer']?['tabs'];
-      if (tabs == null) return null;
 
-      for (var tab in tabs) {
-        final title =
-            tab['tabRenderer']?['title']?.toString().toLowerCase() ?? '';
-        if (title.contains('lyrics')) {
-          return tab['tabRenderer']?['endpoint']?['browseEndpoint']
-              ?['browseId'];
+      String? browseId;
+
+      // Try singleColumn layout (YouTube Music app layout)
+      try {
+        final tabs = nextResp.data['contents']
+                ['singleColumnMusicWatchNextResultsRenderer']['tabbedRenderer']
+            ['watchNextTabbedResultsRenderer']['tabs'];
+        for (final tab in tabs) {
+          final r = tab['tabRenderer'];
+          if ((r?['title'] ?? '') == 'Lyrics') {
+            browseId = r['endpoint']['browseEndpoint']['browseId'];
+            break;
+          }
         }
+      } catch (_) {}
+
+      // Try twoColumn layout fallback
+      if (browseId == null) {
+        try {
+          // This block is a structural placeholder for alternate layouts
+        } catch (_) {}
       }
-    } catch (e) {
-      print('getLyricsBrowseId error: $e');
-    }
-    return null;
-  }
 
-  // Get Lyrics Text
-  Future<String?> getLyrics(String browseId) async {
-    try {
-      final response = await _dio.post(
+      if (browseId == null || browseId.isEmpty) {
+        print('No lyrics browseId for $videoId');
+        return [];
+      }
+
+      // Step 2 — fetch the lyrics page
+      final browseResp = await _dio.post(
         '/browse?key=$_apiKey&prettyPrint=false',
-        data: jsonEncode({
-          "context": _context,
-          "browseId": browseId,
-        }),
+        data: jsonEncode({"context": _context, "browseId": browseId}),
       );
-      final contents = response.data['contents']?['sectionListRenderer']
-              ?['contents']?[0]?['musicDescriptionShelfRenderer']
-          ?['description']?['runs'];
-      if (contents == null) return null;
 
-      return (contents as List).map((r) => r['text'] ?? '').join('');
+      // Step 3 — extract text from response
+      String? fullText;
+
+      try {
+        final runs = browseResp.data['contents']?['sectionListRenderer']
+                ?['contents']?[0]?['musicDescriptionShelfRenderer']
+            ?['description']?['runs'] as List?;
+        if (runs != null && runs.isNotEmpty) {
+          fullText = runs.map((r) => r['text'] as String).join('');
+        }
+      } catch (_) {}
+
+      // Fallback path for different response structure
+      if (fullText == null || fullText.isEmpty) {
+        try {
+          fullText = browseResp.data['contents']?['sectionListRenderer']
+                  ?['contents']?[0]?['musicDescriptionShelfRenderer']
+              ?['description']?['runs']?[0]?['text'];
+        } catch (_) {}
+      }
+
+      if (fullText == null || fullText.isEmpty) return [];
+
+      final rawLines = fullText.split('\n');
+      final cleanLines =
+          rawLines.map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
+
+      // Return duration-aware assigned timings
+      return _assignTimings(cleanLines, songDurationMs);
     } catch (e) {
-      print('getLyrics error: $e');
+      print('fetchLyrics error: $e');
+      return [];
     }
-    return null;
   }
 
   // Search with timestamp to bust cache
@@ -165,6 +290,14 @@ class InnerTubeClient {
         }),
       );
       final List<SongResult> results = [];
+
+      String _hqThumb(String url) {
+        if (url.isEmpty) return url;
+        url = url.replaceAll(RegExp(r'=w\d+-h\d+.*'), '=w576-h576-l90-rj');
+        url = url.replaceAll(RegExp(r'=s\d+'), '=s576');
+        return url;
+      }
+
       try {
         final contents = response.data['contents']
                 ['tabbedSearchResultsRenderer']['tabs'][0]['tabRenderer']
@@ -196,7 +329,7 @@ class InnerTubeClient {
                   id: videoId,
                   title: title,
                   artist: artist,
-                  thumbnail: thumbnail));
+                  thumbnail: _hqThumb(thumbnail)));
             }
           }
         }
@@ -224,6 +357,13 @@ class InnerTubeClient {
 
       final data = response.data;
       final List<SongResult> results = [];
+
+      String _hqThumb(String url) {
+        if (url.isEmpty) return url;
+        url = url.replaceAll(RegExp(r'=w\d+-h\d+.*'), '=w576-h576-l90-rj');
+        url = url.replaceAll(RegExp(r'=s\d+'), '=s576');
+        return url;
+      }
 
       try {
         final contents = data['contents']['tabbedSearchResultsRenderer']['tabs']
@@ -261,7 +401,7 @@ class InnerTubeClient {
                 id: videoId,
                 title: title,
                 artist: artist,
-                thumbnail: thumbnail,
+                thumbnail: _hqThumb(thumbnail),
               ));
             }
           }
@@ -297,6 +437,14 @@ class InnerTubeClient {
       );
 
       final List<PlaylistResult> results = [];
+
+      String _hqThumb(String url) {
+        if (url.isEmpty) return url;
+        url = url.replaceAll(RegExp(r'=w\d+-h\d+.*'), '=w576-h576-l90-rj');
+        url = url.replaceAll(RegExp(r'=s\d+'), '=s576');
+        return url;
+      }
+
       try {
         final contents = response.data['contents']
                 ['tabbedSearchResultsRenderer']['tabs'][0]['tabRenderer']
@@ -329,7 +477,7 @@ class InnerTubeClient {
                 id: playlistId,
                 title: title,
                 owner: owner,
-                thumbnail: thumbnail,
+                thumbnail: _hqThumb(thumbnail),
               ));
             }
           }
@@ -355,6 +503,14 @@ class InnerTubeClient {
       );
 
       final List<SongResult> results = [];
+
+      String _hqThumb(String url) {
+        if (url.isEmpty) return url;
+        url = url.replaceAll(RegExp(r'=w\d+-h\d+.*'), '=w576-h576-l90-rj');
+        url = url.replaceAll(RegExp(r'=s\d+'), '=s576');
+        return url;
+      }
+
       try {
         final sectionList = response.data['contents']
                 ['singleColumnBrowseResultsRenderer']['tabs'][0]['tabRenderer']
@@ -394,7 +550,7 @@ class InnerTubeClient {
                 id: videoId,
                 title: title,
                 artist: artist,
-                thumbnail: thumbnail,
+                thumbnail: _hqThumb(thumbnail),
               ));
             }
           }
@@ -420,6 +576,14 @@ class InnerTubeClient {
       );
 
       final Map<String, List<dynamic>> sections = {};
+
+      String _hqThumb(String url) {
+        if (url.isEmpty) return url;
+        url = url.replaceAll(RegExp(r'=w\d+-h\d+.*'), '=w576-h576-l90-rj');
+        url = url.replaceAll(RegExp(r'=s\d+'), '=s576');
+        return url;
+      }
+
       try {
         final sectionList = response.data['contents']
                 ['singleColumnBrowseResultsRenderer']['tabs'][0]['tabRenderer']
@@ -458,7 +622,7 @@ class InnerTubeClient {
                     id: itemId,
                     title: itemTitle,
                     artist: artist,
-                    thumbnail: thumb));
+                    thumbnail: _hqThumb(thumb)));
               } else if (playlistId != null) {
                 final owner =
                     songRenderer['subtitle']?['runs']?[0]?['text'] ?? '';
@@ -466,7 +630,7 @@ class InnerTubeClient {
                     id: playlistId,
                     title: itemTitle,
                     owner: owner,
-                    thumbnail: thumb));
+                    thumbnail: _hqThumb(thumb)));
               }
             }
           }
@@ -484,88 +648,12 @@ class InnerTubeClient {
       return {};
     }
   }
-
-  Future<List<LyricLine>> getTimedLyrics(String videoId) async {
-    try {
-      // Step 1: get lyrics browseId from next endpoint
-      final nextRes = await _dio
-          .post(
-            '/next?key=$_apiKey&prettyPrint=false',
-            data: jsonEncode({
-              "context": _context,
-              "videoId": videoId,
-              "isAudioOnly": true,
-            }),
-          )
-          .timeout(const Duration(seconds: 8));
-
-      String? lyricsToken;
-      try {
-        final tabs = nextRes.data['contents']
-                ['singleColumnMusicWatchNextResultsRenderer']['tabbedRenderer']
-            ['watchNextTabbedResultsRenderer']['tabs'];
-        for (var tab in tabs) {
-          final tabContent = tab['tabRenderer'];
-          if (tabContent?['title'] == 'Lyrics') {
-            lyricsToken = tabContent['endpoint']['browseEndpoint']['browseId'];
-            break;
-          }
-        }
-      } catch (_) {}
-
-      if (lyricsToken == null) return [];
-
-      // Step 2: fetch lyrics content
-      final lyricsRes = await _dio
-          .post(
-            '/browse?key=$_apiKey&prettyPrint=false',
-            data: jsonEncode({
-              "context": _context,
-              "browseId": lyricsToken,
-            }),
-          )
-          .timeout(const Duration(seconds: 8));
-
-      final List<LyricLine> lines = [];
-      try {
-        final contents =
-            lyricsRes.data['contents']['sectionListRenderer']['contents'];
-        for (var section in contents) {
-          final lyricsData = section['musicDescriptionShelfRenderer'];
-          if (lyricsData != null) {
-            final text = lyricsData['description']?['runs']
-                    ?.map((r) => r['text'])
-                    ?.join('') ??
-                '';
-            if (text.isNotEmpty) {
-              // Plain lyrics — split into lines with estimated timing
-              final rawLines =
-                  text.split('\n').where((l) => l.trim().isNotEmpty).toList();
-              for (int i = 0; i < rawLines.length; i++) {
-                lines.add(LyricLine(
-                  text: rawLines[i].trim(),
-                  // Estimate: assume avg 3 seconds per line
-                  startMs: i * 3000,
-                ));
-              }
-            }
-          }
-        }
-      } catch (e) {
-        print('Lyrics parse: $e');
-      }
-      return lines;
-    } catch (e) {
-      print('Lyrics fetch error: $e');
-      return [];
-    }
-  }
 }
 
 class LyricLine {
   final String text;
-  final int startMs; // milliseconds
-  const LyricLine({required this.text, required this.startMs});
+  final int timeMs;
+  const LyricLine({required this.text, required this.timeMs});
 }
 
 class SongResult {

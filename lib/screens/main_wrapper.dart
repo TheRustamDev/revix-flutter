@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:audio_service/audio_service.dart';
 import '../providers/player_provider.dart';
+import '../providers/theme_provider.dart';
 import 'home_screen.dart';
 import 'explore_screen.dart';
 import 'library_screen.dart';
@@ -16,58 +20,10 @@ class MainWrapper extends StatefulWidget {
   State<MainWrapper> createState() => _MainWrapperState();
 }
 
-class _MainWrapperState extends State<MainWrapper>
-    with SingleTickerProviderStateMixin {
+class _MainWrapperState extends State<MainWrapper> {
   int _selectedIndex = 0;
   DateTime? _lastHomeTap;
   final GlobalKey<HomeScreenState> _homeKey = GlobalKey<HomeScreenState>();
-
-  bool _isNavVisible = false;
-  Timer? _navHideTimer;
-  late AnimationController _navAnimCtrl;
-  late Animation<double> _navFade;
-
-  @override
-  void initState() {
-    super.initState();
-    _navAnimCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 250));
-    _navFade = CurvedAnimation(parent: _navAnimCtrl, curve: Curves.easeOut);
-  }
-
-  void _toggleNav() {
-    _navHideTimer?.cancel();
-    if (_isNavVisible) {
-      _navAnimCtrl.reverse();
-      setState(() => _isNavVisible = false);
-    } else {
-      _navAnimCtrl.forward();
-      setState(() => _isNavVisible = true);
-      _navHideTimer = Timer(const Duration(seconds: 10), () {
-        if (mounted && _isNavVisible) {
-          _navAnimCtrl.reverse();
-          setState(() => _isNavVisible = false);
-        }
-      });
-    }
-  }
-
-  void _resetHideTimer() {
-    _navHideTimer?.cancel();
-    _navHideTimer = Timer(const Duration(seconds: 10), () {
-      if (mounted && _isNavVisible) {
-        _navAnimCtrl.reverse();
-        setState(() => _isNavVisible = false);
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _navHideTimer?.cancel();
-    _navAnimCtrl.dispose();
-    super.dispose();
-  }
 
   late final List<Widget> _screens = [
     HomeScreen(key: _homeKey),
@@ -76,14 +32,24 @@ class _MainWrapperState extends State<MainWrapper>
     const ProfileScreen(),
   ];
 
-  final List<_NavItem> _navItems = const [
-    _NavItem(icon: Icons.home_rounded, label: 'Home'),
-    _NavItem(icon: Icons.explore_outlined, label: 'Explore'),
-    _NavItem(icon: Icons.library_music_outlined, label: 'Library'),
-    _NavItem(icon: Icons.person_outline_rounded, label: 'Profile'),
+  bool _isNavVisible = false;
+  Timer? _navTimer;
+
+  final List<Map<String, dynamic>> _navItems = [
+    {'icon': Icons.home_rounded, 'label': 'Home'},
+    {'icon': Icons.explore_outlined, 'label': 'Explore'},
+    {'icon': Icons.library_music_outlined, 'label': 'Library'},
+    {'icon': Icons.person_outline_rounded, 'label': 'Profile'},
   ];
 
+  @override
+  void dispose() {
+    _navTimer?.cancel();
+    super.dispose();
+  }
+
   void _onTabTapped(int index) {
+    HapticFeedback.lightImpact();
     if (index == 0 && _selectedIndex == 0) {
       final now = DateTime.now();
       if (_lastHomeTap != null &&
@@ -93,171 +59,180 @@ class _MainWrapperState extends State<MainWrapper>
       _lastHomeTap = now;
     }
     setState(() => _selectedIndex = index);
-    _resetHideTimer();
+    _resetTimer();
+  }
+
+  void _toggleNav() {
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _isNavVisible = !_isNavVisible;
+      if (_isNavVisible) _resetTimer();
+    });
+  }
+
+  void _resetTimer() {
+    _navTimer?.cancel();
+    _navTimer = Timer(const Duration(seconds: 10), () {
+      if (mounted) setState(() => _isNavVisible = false);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final player = context.watch<PlayerProvider>();
+    final theme = context.watch<ThemeProvider>();
     final bottomPad = MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          // Screens
-          IndexedStack(
-            index: _selectedIndex,
-            children: _screens,
+      backgroundColor: Colors.transparent,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              theme.bgColor1,
+              theme.bgColor2,
+              theme.bgColor3,
+            ],
+            stops: const [0.0, 0.5, 1.0],
           ),
-
-          // Mini Player
-          if (player.currentSong != null)
-            Positioned(
-              bottom: 88 + bottomPad,
-              left: 12,
-              right: 12,
-              child: _MiniPlayer(player: player),
-            ),
-
-          // Floating Nav — only circle visible by default
-          Positioned(
-            bottom: 16 + bottomPad,
-            left: 0,
-            right: 0,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Nav items row — fades in/out
-                FadeTransition(
-                  opacity: _navFade,
-                  child: IgnorePointer(
-                    ignoring: !_isNavVisible,
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 20),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF0D0D1A).withOpacity(0.95),
-                        borderRadius: BorderRadius.circular(26),
-                        border: Border.all(color: Colors.white10, width: 0.5),
-                        boxShadow: [
-                          BoxShadow(
-                              color: Colors.black.withOpacity(0.6),
-                              blurRadius: 24,
-                              spreadRadius: 2),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          // Left side items (Home, Explore)
-                          ..._navItems
-                              .sublist(0, 2)
-                              .asMap()
-                              .entries
-                              .map((e) => _NavButton(
-                                    item: e.value,
-                                    selected: _selectedIndex == e.key,
-                                    onTap: () => _onTabTapped(e.key),
-                                  )),
-                          // Center spacer
-                          const SizedBox(width: 56),
-                          // Right side items (Library, Profile)
-                          ..._navItems
-                              .sublist(2)
-                              .asMap()
-                              .entries
-                              .map((e) => _NavButton(
-                                    item: e.value,
-                                    selected: _selectedIndex == e.key + 2,
-                                    onTap: () => _onTabTapped(e.key + 2),
-                                  )),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                // Center floating circle — always visible
-                GestureDetector(
-                  onTap: _toggleNav,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    width: 58,
-                    height: 58,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        colors: _isNavVisible
-                            ? [const Color(0xFF8B5CF6), const Color(0xFFEC4899)]
-                            : [
-                                const Color(0xFF5A3A9E),
-                                const Color(0xFF9B3070)
-                              ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF8B5CF6)
-                              .withOpacity(_isNavVisible ? 0.5 : 0.25),
-                          blurRadius: _isNavVisible ? 20 : 12,
-                          spreadRadius: _isNavVisible ? 2 : 0,
-                        )
-                      ],
-                    ),
-                    child: Icon(
-                      _isNavVisible ? Icons.close_rounded : Icons.apps_rounded,
-                      color: Colors.white,
-                      size: 26,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _NavItem {
-  final IconData icon;
-  final String label;
-  const _NavItem({required this.icon, required this.label});
-}
-
-class _NavButton extends StatelessWidget {
-  final _NavItem item;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _NavButton(
-      {required this.item, required this.selected, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        ),
+        child: Stack(
           children: [
-            Icon(
-              item.icon,
-              color: selected ? const Color(0xFF8B5CF6) : Colors.white38,
-              size: 24,
+            // Screens
+            IndexedStack(
+              index: _selectedIndex,
+              children: _screens,
             ),
-            const SizedBox(height: 2),
-            Text(
-              item.label,
-              style: TextStyle(
-                color: selected ? const Color(0xFF8B5CF6) : Colors.white38,
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
+
+            // Mini Player — sits above nav bar
+            if (player.currentSong != null)
+              Positioned(
+                bottom: 88 + bottomPad,
+                left: 0,
+                right: 0,
+                child: _MiniPlayer(player: player),
+              ),
+
+            // FLOATING NAV BAR
+            Positioned(
+              bottom: 20 + bottomPad,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 350),
+                  curve: Curves.easeOutCubic,
+                  height: 64,
+                  width: _isNavVisible
+                      ? MediaQuery.of(context).size.width - 32
+                      : 64,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(32),
+                    color: _isNavVisible
+                        ? const Color(0xFF0D0D1A).withOpacity(0.96)
+                        : Colors.transparent,
+                    boxShadow: _isNavVisible
+                        ? [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.4),
+                              blurRadius: 20,
+                              offset: const Offset(0, 10),
+                            )
+                          ]
+                        : [],
+                    border: _isNavVisible
+                        ? Border.all(
+                            color: Colors.white.withOpacity(0.08), width: 0.5)
+                        : null,
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(32),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(
+                          sigmaX: _isNavVisible ? 20 : 0,
+                          sigmaY: _isNavVisible ? 20 : 0),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // THE ORB (Persistent in center)
+                            GestureDetector(
+                              onTap: _toggleNav,
+                              onLongPress: () {
+                                HapticFeedback.heavyImpact();
+                                _toggleNav();
+                              },
+                              child: Container(
+                                width: 52,
+                                height: 52,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  gradient: const LinearGradient(
+                                    colors: [
+                                      Color(0xFF8B5CF6),
+                                      Color(0xFFEC4899)
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF8B5CF6)
+                                          .withOpacity(0.3),
+                                      blurRadius: 12,
+                                      spreadRadius: 2,
+                                    )
+                                  ],
+                                ),
+                                child: const Center(
+                                  child: Text(
+                                    'R',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 22,
+                                      letterSpacing: -1,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                            // EXPANDING NAV ITEMS
+                            if (_isNavVisible) ...[
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children:
+                                      List.generate(_navItems.length, (i) {
+                                    final item = _navItems[i];
+                                    final isSelected = _selectedIndex == i;
+                                    return _NavButton(
+                                      icon: item['icon'],
+                                      label: item['label'],
+                                      isSelected: isSelected,
+                                      onTap: () {
+                                        setState(() => _selectedIndex = i);
+                                        _onTabTapped(i);
+                                        _resetTimer();
+                                      },
+                                    );
+                                  }),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
           ],
@@ -267,8 +242,49 @@ class _NavButton extends StatelessWidget {
   }
 }
 
+class _NavButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _NavButton({
+    required this.icon,
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            color: isSelected ? Colors.white : Colors.white38,
+            size: 24,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: isSelected ? Colors.white : Colors.white38,
+              fontSize: 10,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ──────────────────────────────────────────────
-// MINI PLAYER
+// GLASSMORPHIC MINI PLAYER
 // ──────────────────────────────────────────────
 class _MiniPlayer extends StatelessWidget {
   final PlayerProvider player;
@@ -279,138 +295,223 @@ class _MiniPlayer extends StatelessWidget {
     return GestureDetector(
       onTap: () => Navigator.push(
           context, MaterialPageRoute(builder: (_) => const PlayerScreen())),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          color: const Color(0xFF1A1A2E),
-          border: Border.all(
-              color: const Color(0xFF8B5CF6).withOpacity(0.3), width: 0.5),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.5),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            )
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: player.currentSong?.artUri != null
-                      ? CachedNetworkImage(
-                          imageUrl: player.currentSong!.artUri.toString(),
-                          width: 46,
-                          height: 46,
-                          fit: BoxFit.cover,
-                        )
-                      : Container(
-                          width: 46,
-                          height: 46,
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [Color(0xFF8B5CF6), Color(0xFFEC4899)],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(28),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Container(
+              height: 72,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(28),
+                color: const Color(0xFF0D0D1A).withOpacity(0.92),
+                border: Border.all(
+                  color: const Color(0xFF8B5CF6).withOpacity(0.25),
+                  width: 0.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.4),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  // Drag handle
+                  Container(
+                    margin: const EdgeInsets.only(top: 6),
+                    width: 32,
+                    height: 3,
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Row(
+                        children: [
+                          // Album art + waveform
+                          Stack(
+                            alignment: Alignment.bottomCenter,
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: player.currentSong?.artUri != null
+                                    ? CachedNetworkImage(
+                                        memCacheWidth: 576,
+                                        memCacheHeight: 576,
+                                        maxWidthDiskCache: 576,
+                                        maxHeightDiskCache: 576,
+                                        filterQuality: FilterQuality.high,
+                                        imageUrl: player.currentSong!.artUri
+                                            .toString(),
+                                        width: 46,
+                                        height: 46,
+                                        fit: BoxFit.cover)
+                                    : Container(
+                                        width: 46,
+                                        height: 46,
+                                        decoration: const BoxDecoration(
+                                            gradient: LinearGradient(colors: [
+                                          Color(0xFF8B5CF6),
+                                          Color(0xFFEC4899)
+                                        ]))),
+                              ),
+                              // Waveform overlay at bottom of art
+                              Positioned(
+                                bottom: 4,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: List.generate(
+                                      4,
+                                      (i) => AnimatedContainer(
+                                            duration: Duration(
+                                                milliseconds: 200 + i * 80),
+                                            width: 2,
+                                            height: player.isPlaying
+                                                ? (4.0 + i * 3.0)
+                                                : 2.0,
+                                            margin: const EdgeInsets.symmetric(
+                                                horizontal: 1),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFEC4899),
+                                              borderRadius:
+                                                  BorderRadius.circular(1),
+                                            ),
+                                          )),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(width: 12),
+                          // Title + artist + progress
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  player.currentSong?.title ?? '',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Row(children: [
+                                  Flexible(
+                                    child: Text(
+                                      player.currentSong?.artist ?? '',
+                                      style: const TextStyle(
+                                        color: Colors.white54,
+                                        fontSize: 11,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  const Icon(Icons.verified,
+                                      color: Color(0xFF8B5CF6), size: 10),
+                                  if (player.autoPlay) ...[
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 4, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF8B5CF6)
+                                            .withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(
+                                            color: const Color(0xFF8B5CF6)
+                                                .withOpacity(0.5),
+                                            width: 0.5),
+                                      ),
+                                      child: const Text('AUTO',
+                                          style: TextStyle(
+                                              color: Color(0xFF8B5CF6),
+                                              fontSize: 7,
+                                              fontWeight: FontWeight.w900)),
+                                    ),
+                                  ],
+                                ]),
+                                const SizedBox(height: 5),
+                                // Pink progress bar no thumb
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(2),
+                                  child: LinearProgressIndicator(
+                                    value: player.progress,
+                                    backgroundColor: Colors.white12,
+                                    valueColor: const AlwaysStoppedAnimation(
+                                        Color(0xFFEC4899)),
+                                    minHeight: 2,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        player.currentSong?.title ?? '',
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                          const SizedBox(width: 8),
+                          // Controls
+                          GestureDetector(
+                              onTap: player.skipToPrevious,
+                              child: const Icon(Icons.skip_previous_rounded,
+                                  color: Colors.white60, size: 22)),
+                          const SizedBox(width: 6),
+                          GestureDetector(
+                            onTap: () {
+                              HapticFeedback.lightImpact();
+                              player.togglePlayPause();
+                            },
+                            child: Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                    color: const Color(0xFF8B5CF6), width: 1.5),
+                              ),
+                              child: Icon(
+                                player.isPlaying
+                                    ? Icons.pause_rounded
+                                    : Icons.play_arrow_rounded,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          GestureDetector(
+                              onTap: player.skipToNext,
+                              child: const Icon(Icons.skip_next_rounded,
+                                  color: Colors.white60, size: 22)),
+                          const SizedBox(width: 6),
+                          GestureDetector(
+                            onTap: player.toggleRepeat,
+                            child: Icon(
+                              Icons.repeat_rounded,
+                              color: player.repeatMode !=
+                                      AudioServiceRepeatMode.none
+                                  ? const Color(0xFF8B5CF6)
+                                  : Colors.white24,
+                              size: 18,
+                            ),
+                          ),
+                        ],
                       ),
-                      Text(
-                        player.currentSong?.artist ?? '',
-                        style: const TextStyle(
-                            color: Colors.white54, fontSize: 11),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.skip_previous_rounded,
-                      color: Colors.white, size: 26),
-                  onPressed: player.skipToPrevious,
-                  padding: EdgeInsets.zero,
-                ),
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border:
-                        Border.all(color: const Color(0xFF8B5CF6), width: 2),
-                  ),
-                  child: IconButton(
-                    padding: EdgeInsets.zero,
-                    icon: Icon(
-                      player.isPlaying
-                          ? Icons.pause_rounded
-                          : Icons.play_arrow_rounded,
-                      color: Colors.white,
-                      size: 24,
                     ),
-                    onPressed: player.togglePlayPause,
                   ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.skip_next_rounded,
-                      color: Colors.white, size: 26),
-                  onPressed: player.skipToNext,
-                  padding: EdgeInsets.zero,
-                ),
-                if (player.sleepTimerRemaining > 0)
-                  Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                          color: const Color(0xFFFFD700).withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(10)),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        const Icon(Icons.timer_rounded,
-                            color: Color(0xFFFFD700), size: 12),
-                        const SizedBox(width: 4),
-                        Text('${player.sleepTimerRemaining ~/ 60}m',
-                            style: const TextStyle(
-                                color: Color(0xFFFFD700),
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold))
-                      ])),
-              ],
-            ),
-            const SizedBox(height: 8),
-            SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-                overlayShape: SliderComponentShape.noOverlay,
-                trackHeight: 2.5,
-                activeTrackColor: const Color(0xFF8B5CF6),
-                inactiveTrackColor: Colors.white12,
-                thumbColor: const Color(0xFFEC4899),
-              ),
-              child: Slider(
-                value: player.progress,
-                onChanged: (v) => player.seekTo(Duration(
-                    milliseconds:
-                        (v * player.duration.inMilliseconds).round())),
+                ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
