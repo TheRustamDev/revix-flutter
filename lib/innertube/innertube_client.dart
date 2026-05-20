@@ -419,7 +419,70 @@ class InnerTubeClient {
   }
 
   Future<List<SongResult>> getQuickPicks() async {
-    return await freshSearch("Trending popular hits 2024");
+    final hour = DateTime.now().hour;
+    List<String> pool;
+    if (hour >= 0 && hour < 7) {
+      pool = [
+        'late night chill songs',
+        'midnight slow songs',
+        '1am playlist',
+        'night drive music',
+        'slow romantic hindi night',
+        'lofi beats late night',
+        'sad songs midnight',
+        'soft english songs night',
+        'acoustic night vibes',
+        'hindi soft songs 3am',
+        'calm instrumental night',
+        'neon lights chill',
+      ];
+    } else if (hour >= 7 && hour < 12) {
+      pool = [
+        'morning fresh hits ${DateTime.now().year}',
+        'upbeat morning playlist',
+        'good morning energy songs',
+        'happy morning vibes',
+        'pop morning hits',
+        'bollywood morning songs',
+        'fresh indie morning',
+        'coffee shop morning music',
+        'punjabi morning drive',
+        'motivational morning songs',
+        'sunrise playlist',
+      ];
+    } else if (hour >= 12 && hour < 17) {
+      pool = [
+        'top hits ${DateTime.now().year}',
+        'trending songs today',
+        'best bollywood ${DateTime.now().year}',
+        'viral hits now',
+        'top punjabi songs',
+        'new english hits',
+        'chart toppers this week',
+        'popular songs afternoon',
+        'best of arijit singh',
+        'latest releases',
+        'desi hip hop trending',
+        'top global 50 songs',
+      ];
+    } else {
+      pool = [
+        'evening chill playlist',
+        'sunset songs vibes',
+        'after work relax music',
+        'top hindi songs evening',
+        'romantic evening songs',
+        'best weekend playlist',
+        'party songs trending',
+        'dance hits ${DateTime.now().year}',
+        'bollywood party songs',
+        'groovy evening hits',
+        'friday night playlist',
+        'best of weekend vibes',
+      ];
+    }
+    pool.shuffle();
+    return freshSearch(pool.first);
   }
 
   Future<List<SongResult>> getRelatedSongs(String videoId) async {

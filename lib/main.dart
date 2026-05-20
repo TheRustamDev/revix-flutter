@@ -39,7 +39,9 @@ Future<void> main() async {
           update: (_, settings, theme, player) {
             player!.attachSettings(settings);
             player.attachTheme(theme);
-            theme.setAmoled(settings.appearance.amoledMode);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              theme.setAmoled(settings.appearance.amoledMode);
+            });
             return player;
           },
         ),

@@ -36,6 +36,8 @@ MediaItem songToMediaItem(SongResult song) {
 }
 
 class PlayerProvider extends ChangeNotifier {
+  DateTime? _lastHomeFetchTime;
+  DateTime? _lastQuickPicksFetchTime;
   final MusicHandler _handler;
   final InnerTubeClient _innerTube = InnerTubeClient();
   final YouTubeMusicRecommendations _recommendations =
@@ -261,16 +263,16 @@ class PlayerProvider extends ChangeNotifier {
         _downloadedMetadata[k.toString()] = Map<String, String>.from(v));
 
     final savedLikes = _libraryBox!.get('liked_ids', defaultValue: []);
-    _likedIds.addAll(savedLikes.map((e) => e.toString()));
+    _likedIds.addAll((savedLikes as List).map((e) => e.toString()));
     final likedMeta = _libraryBox!.get('liked_metadata', defaultValue: {});
-    (likedMeta as Map).forEach(
-        (k, v) => _likedMetadata[k.toString()] = Map<String, String>.from(v));
+    (likedMeta as Map).forEach((k, v) =>
+        _likedMetadata[k.toString()] = Map<String, String>.from(v as Map));
 
     // Load Recently Played
     final savedRecent = _libraryBox!.get('recently_played', defaultValue: []);
     recentlyPlayed.clear();
     for (var m in savedRecent as List) {
-      final map = Map<String, dynamic>.from(m);
+      final map = Map<String, dynamic>.from(m as Map);
       recentlyPlayed.add(MediaItem(
         id: map['id'],
         title: map['title'],
@@ -295,7 +297,7 @@ class PlayerProvider extends ChangeNotifier {
     // Load Play History
     final savedHistory = _libraryBox!.get('play_history', defaultValue: []);
     _playHistory.addAll(
-        (savedHistory as List).map((e) => Map<String, dynamic>.from(e)));
+        (savedHistory as List).map((e) => Map<String, dynamic>.from(e as Map)));
 
     // Unique session seed based on time
     _sessionSeed = DateTime.now().millisecondsSinceEpoch % 10000;
@@ -450,23 +452,70 @@ class PlayerProvider extends ChangeNotifier {
     } else {
       // No taste data yet — diverse rotating defaults
       final defaults = [
-        'trending songs today',
+        'trending songs ${DateTime.now().year}',
         'top hits right now',
-        'viral music 2024',
+        'viral music ${DateTime.now().year}',
         'best songs this week',
         'popular music trending',
-        'new releases 2024',
-        'top bollywood 2024',
-        'best hip hop 2024',
-        'chill playlist 2024',
+        'new releases ${DateTime.now().year}',
+        'top bollywood ${DateTime.now().year}',
+        'best hip hop ${DateTime.now().year}',
+        'chill playlist ${DateTime.now().year}',
         'top english hits',
         'top punjabi songs',
-        'best romantic songs',
-        'workout music 2024',
-        'indie songs 2024',
+        'best romantic songs hindi',
+        'workout music energy',
+        'indie songs trending',
         'top pop songs now',
+        'new arijit singh songs',
+        'top marathi songs ${DateTime.now().year}',
+        'best tamil hits ${DateTime.now().year}',
+        'telugu chart toppers',
+        'bengali modern songs',
+        'sufi songs best collection',
+        'ghazal hits classic',
+        'midnight chill vibes',
+        'driving playlist energy',
+        '90s bollywood hits nostalgia',
+        '2000s throwback english songs',
+        'global top 50 hits',
+        'lofi beats focus',
+        'meditation calm music',
+        'desi hip hop trending',
+        'ap dhillon shubh karan aujla mix',
+        'new kpop hits ${DateTime.now().year}',
+        'afrobeats trending now',
+        'latin pop hits ${DateTime.now().year}',
+        'sad emotional hindi songs',
+        'party bangers dancefloor',
+        'best of atif aslam',
+        'instrumental background music',
+        'devotional morning songs',
+        'jazz lounge evening chill',
       ];
       candidates.addAll(defaults);
+    }
+
+    final hour = DateTime.now().hour;
+    if (hour >= 0 && hour < 6) {
+      candidates.insertAll(0, [
+        'late night slow songs',
+        'midnight chill playlist',
+        '1am vibes music',
+        'night drive songs',
+      ]);
+    } else if (hour >= 6 && hour < 12) {
+      candidates.insertAll(0, [
+        'morning fresh energy songs',
+        'good morning playlist',
+        'upbeat morning vibes',
+      ]);
+    } else if (hour >= 17 && hour < 22) {
+      candidates.insertAll(0, [
+        'evening chill songs',
+        'sunset vibes playlist',
+        'after work relax music',
+      ]);
     }
 
     // Pick one not recently used
@@ -508,12 +557,21 @@ class PlayerProvider extends ChangeNotifier {
 
       // Step 3: Filter played + already in queue
       final queueIds = queue.map((q) => q.id).toSet();
-      final filtered = candidates
-          .where((s) =>
-              !_playedIds.contains(s.id) &&
-              !queueIds.contains(s.id) &&
-              s.title.isNotEmpty)
-          .toList();
+      final queueTooSmall = queueIds.length < 3;
+      final filtered = candidates.where((s) {
+        if (!s.title.isNotEmpty) return false;
+        if (_playedIds.contains(s.id)) return false;
+        if (queueIds.contains(s.id)) return false;
+        if (!queueTooSmall) {
+          final t = s.title.toLowerCase();
+          if (RegExp(
+                  r'remix|mashup|cover|medley|tribute|karaoke|slowed|reverb|instrumental version')
+              .hasMatch(t)) {
+            return false;
+          }
+        }
+        return true;
+      }).toList();
 
       // Step 4: Add up to 10 recommendations to keep queue healthy
       for (final song in filtered.take(10)) {
@@ -529,7 +587,79 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
+  List<SongResult> get keepListeningSuggestions {
+    if (recentlyPlayed.length < 3) return [];
+    final suggestions = recentlyPlayed
+        .map((item) => SongResult(
+              id: item.id,
+              title: item.title,
+              artist: item.artist ?? '',
+              thumbnail: item.artUri?.toString() ?? '',
+            ))
+        .toList();
+    suggestions.shuffle();
+    return suggestions.take(12).toList();
+  }
+
+  List<SongResult> _getForgottenFavorites() {
+    final Map<String, int> counts = {};
+    final Map<String, Map<String, dynamic>> dataMap = {};
+    for (var entry in _playHistory) {
+      final id = entry['id'] as String;
+      counts[id] = (counts[id] ?? 0) + 1;
+      dataMap[id] = entry;
+    }
+    final recentIds = recentlyPlayed.map((e) => e.id).toSet();
+    final List<SongResult> results = [];
+    counts.forEach((id, count) {
+      if (count > 3 && !recentIds.contains(id)) {
+        final d = dataMap[id]!;
+        results.add(SongResult(
+          id: id,
+          title: d['title']?.toString() ?? 'Unknown',
+          artist: d['artist']?.toString() ?? 'Unknown',
+          thumbnail: d['thumbnail']?.toString() ?? '',
+        ));
+      }
+    });
+    results.shuffle();
+    return results.take(8).toList();
+  }
+
+  Future<void> _loadSimilarArtistSections() async {
+    if (_artistWeight.isEmpty) return;
+    final topArtists = _artistWeight.entries.where((e) => e.value >= 3).toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    if (topArtists.isEmpty) return;
+    final artists = topArtists.take(3).map((e) => e.key).toList();
+    for (final artist in artists) {
+      try {
+        List<SongResult> songs = [];
+        if (currentSong != null) {
+          songs = await _innerTube.getRelatedSongs(currentSong!.id);
+        }
+        if (songs.isEmpty) {
+          songs = await _innerTube.freshSearch('$artist best songs');
+        }
+        final filtered =
+            songs.where((s) => !_playedIds.contains(s.id)).take(10).toList();
+        if (filtered.isNotEmpty) {
+          final key = 'Because You Play $artist';
+          if (!homeSections.containsKey(key)) {
+            homeSections[key] = filtered;
+            notifyListeners();
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
   Future<void> fetchHomeSections() async {
+    if (_lastHomeFetchTime != null &&
+        DateTime.now().difference(_lastHomeFetchTime!) <
+            const Duration(minutes: 30)) {
+      return;
+    }
     if (isLoadingHome) return;
     isLoadingHome = true;
     notifyListeners();
@@ -548,7 +678,46 @@ class PlayerProvider extends ChangeNotifier {
             if (playlists.isNotEmpty) homePlaylists[title] = playlists;
           }
         });
+
+        _lastHomeFetchTime = DateTime.now();
+
+        final forgotten = _getForgottenFavorites();
+        if (forgotten.isNotEmpty) {
+          homeSections['Rediscover'] = forgotten;
+        }
+      } else if (homeSections.isEmpty) {
+        final results = await Future.wait([
+          _innerTube.freshSearch(_buildQuery()),
+          _innerTube.freshSearch(_buildQuery()),
+          _innerTube.freshSearch(_buildQuery()),
+          _innerTube.freshSearch(_buildQuery()),
+        ]);
+        final sectionTitles = [
+          'Trending Right Now',
+          'Fresh Picks',
+          'Based on Your Taste',
+          'New This Week',
+        ];
+        for (int i = 0; i < results.length; i++) {
+          if (results[i].isNotEmpty) {
+            homeSections[sectionTitles[i]] = results[i];
+          }
+        }
       }
+
+      final seenIds = <String>{};
+      final dedupedSections = <String, List<SongResult>>{};
+      for (final entry in homeSections.entries) {
+        final unique = entry.value.where((s) => seenIds.add(s.id)).toList();
+        if (unique.isNotEmpty) {
+          dedupedSections[entry.key] = unique;
+        }
+      }
+      homeSections
+        ..clear()
+        ..addAll(dedupedSections);
+
+      unawaited(_loadSimilarArtistSections());
     } catch (e) {
       debugPrint('Error fetching home feed: $e');
     } finally {
@@ -559,11 +728,24 @@ class PlayerProvider extends ChangeNotifier {
 
   Future<void> refreshHomeRecommendations() => fetchHomeSections();
 
+  String get freshDiscoveryQuery => _buildQuery();
+
+  Future<void> rotateQuickPicks() async {
+    _lastQuickPicksFetchTime = null;
+    await fetchQuickPicks();
+  }
+
   Future<void> fetchQuickPicks() async {
+    if (_lastQuickPicksFetchTime != null &&
+        DateTime.now().difference(_lastQuickPicksFetchTime!) <
+            const Duration(minutes: 15)) {
+      return;
+    }
     isLoadingPicks = true;
     notifyListeners();
     try {
       quickPicks = await _innerTube.getQuickPicks();
+      _lastQuickPicksFetchTime = DateTime.now();
     } catch (e) {
       debugPrint('Error fetching picks: $e');
     } finally {
@@ -715,6 +897,9 @@ class PlayerProvider extends ChangeNotifier {
     _playHistory.add({
       'id': itemToPlay.id,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'title': itemToPlay.title,
+      'artist': itemToPlay.artist ?? '',
+      'thumbnail': currentSong?.artUri?.toString() ?? '',
     });
     // Keep last 1000 plays for analytics
     if (_playHistory.length > 1000) _playHistory.removeAt(0);

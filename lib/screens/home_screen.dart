@@ -44,71 +44,61 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     {'label': 'Anime'},
   ];
 
-  final List<Map<String, dynamic>> _madeForYou = [
-    {
-      'title': 'Daily Pulse',
-      'subtitle': 'Your daily mix of new hits',
-      'c1': const Color(0xFF2D0A4E),
-      'c2': const Color(0xFF1A0A2E),
-      'accent': const Color(0xFFEC4899),
-      'query': 'youtube music top hits this week india',
-      'type': 'wave'
-    },
-    {
-      'title': 'Late Night',
-      'subtitle': 'Vibes for your midnight soul',
-      'c1': const Color(0xFF0A0A2E),
-      'c2': const Color(0xFF0A0A18),
-      'accent': Colors.white,
+  List<Map<String, dynamic>> _buildMadeForYouCards(PlayerProvider player) {
+    final genre = player.topGenre.isNotEmpty ? player.topGenre : 'trending';
+    final fixed0 = {
+      'label': 'Daily Pulse',
+      'sub': 'Your top picks today',
+      'query': 'top $genre hits ${DateTime.now().year}',
+      'color': 0xFFEC4899,
+    };
+    final fixed1 = {
+      'label': 'Late Night',
+      'sub': 'After midnight feels',
       'query': 'late night slow sad songs hindi',
-      'type': 'orb'
-    },
-    {
-      'title': 'Punjabi',
-      'subtitle': 'The finest from Punjab',
-      'c1': const Color(0xFF1A0A00),
-      'c2': const Color(0xFF2A1500),
-      'accent': const Color(0xFFEC4899),
-      'query': 'new punjabi songs 2024 latest',
-      'type': 'khanda'
-    },
-    {
-      'title': 'Romance',
-      'subtitle': 'For the romantic soul',
-      'c1': const Color(0xFF2A0A1A),
-      'c2': const Color(0xFF1A0510),
-      'accent': const Color(0xFFEC4899),
-      'query': 'best romantic songs hindi 2024',
-      'type': 'heart'
-    },
-    {
-      'title': 'Flashback',
-      'subtitle': 'Best of the decades',
-      'c1': const Color(0xFF1A1A00),
-      'c2': const Color(0xFF000000),
-      'accent': const Color(0xFFFFD700),
-      'query': '90s bollywood hits collection',
-      'type': 'wave'
-    },
-    {
-      'title': 'K-Pop Fresh',
-      'subtitle': 'Latest from Seoul',
-      'c1': const Color(0xFF001A1A),
-      'c2': const Color(0xFF000000),
-      'accent': const Color(0xFF0EA5E9),
-      'query': 'new kpop releases 2024 hits',
-      'type': 'orb'
-    },
-    {
-      'title': 'Soulful Sufi',
-      'subtitle': 'Divine melodies',
-      'c1': const Color(0xFF1A0A00),
-      'c2': const Color(0xFF000000),
-      'accent': const Color(0xFFEC4899),
-      'query': 'best sufi songs arijit nusrat rabbi',
-      'type': 'wave'
-    },
-  ];
+      'color': 0xFF6366F1,
+    };
+    final rotatable = [
+      {
+        'label': 'Punjabi Heat',
+        'sub': 'Fresh from Punjab',
+        'query': 'new punjabi songs ${DateTime.now().year} latest',
+        'color': 0xFFFFD700
+      },
+      {
+        'label': 'Romance',
+        'sub': 'Songs that hit deep',
+        'query': 'best romantic songs hindi ${DateTime.now().year}',
+        'color': 0xFF0EA5E9
+      },
+      {
+        'label': 'Nostalgia',
+        'sub': '90s classics',
+        'query': '90s bollywood hits collection',
+        'color': 0xFF10B981
+      },
+      {
+        'label': 'K-Pop Now',
+        'sub': 'Top Korean hits',
+        'query': 'new kpop releases ${DateTime.now().year} hits',
+        'color': 0xFFEC4899
+      },
+      {
+        'label': 'Sufi Soul',
+        'sub': 'Spiritual & soulful',
+        'query': 'best sufi songs arijit nusrat rabbi',
+        'color': 0xFF8B5CF6
+      },
+      {
+        'label': 'Global Hits',
+        'sub': 'Worldwide trending',
+        'query': 'top global hits ${DateTime.now().year}',
+        'color': 0xFFFF6B00
+      },
+    ];
+    rotatable.shuffle();
+    return [fixed0, fixed1, ...rotatable.take(5)];
+  }
 
   String get _greeting {
     final h = DateTime.now().hour;
@@ -131,7 +121,9 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ..repeat();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final player = context.read<PlayerProvider>();
-      player.search('top hindi songs 2024');
+      player.search(player.topGenre.isNotEmpty
+          ? 'top ${player.topGenre} hits ${DateTime.now().year}'
+          : player.freshDiscoveryQuery);
       player.fetchHomeSections();
       _loadPlaylistThumbnails();
     });
@@ -165,20 +157,43 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               onRefresh: () async {
                 final p = context.read<PlayerProvider>();
                 final pool = [
-                  'top bollywood 2024',
-                  'best punjabi hits',
-                  'trending indie songs',
-                  'arijit singh hits',
-                  'ap dhillon new songs',
-                  'lofi chill beats',
-                  'shubh latest songs',
-                  'diljit dosanjh mix',
-                  'best of weeknd',
-                  'global top 50'
+                  'trending songs ${DateTime.now().year}',
+                  'top bollywood hits ${DateTime.now().year}',
+                  'best punjabi songs now',
+                  'viral english hits',
+                  'new releases this week',
+                  'top hindi romantic songs',
+                  'best of arijit singh',
+                  'desi hip hop trending',
+                  'top marathi songs ${DateTime.now().year}',
+                  'best tamil hits ${DateTime.now().year}',
+                  'telugu chart toppers',
+                  'bengali modern hits',
+                  'sufi hits collection',
+                  'top lofi study beats',
+                  'midnight chill songs',
+                  'driving energy playlist',
+                  '90s bollywood nostalgia',
+                  '2000s english throwback',
+                  'global top 50 now',
+                  'workout motivation songs',
+                  'k-pop hits ${DateTime.now().year}',
+                  'afrobeats trending',
+                  'latin pop ${DateTime.now().year}',
+                  'sad emotional songs hindi',
+                  'party bangers dancefloor',
+                  'ap dhillon shubh mix',
+                  'atif aslam best hits',
+                  'instrumental background chill',
+                  'devotional morning songs',
+                  'jazz evening lounge',
                 ];
                 pool.shuffle();
-                p.search(pool.first);
-                await p.fetchHomeSections();
+                await Future.wait([
+                  p.search(pool.first),
+                  p.fetchHomeSections(),
+                  p.rotateQuickPicks(),
+                ]);
               },
               child: CustomScrollView(
                 controller: scrollController,
@@ -194,6 +209,27 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   const SliverToBoxAdapter(child: SizedBox(height: 20)),
                   SliverToBoxAdapter(child: _sectionHeader('Recently Played')),
                   SliverToBoxAdapter(child: _recentlyPlayed(player)),
+                  if (player.keepListeningSuggestions.isNotEmpty) ...[
+                    SliverToBoxAdapter(child: _sectionHeader('Keep Listening')),
+                    SliverToBoxAdapter(
+                      child: SizedBox(
+                        height: 190,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          physics: const BouncingScrollPhysics(),
+                          itemCount: player.keepListeningSuggestions.length,
+                          itemBuilder: (context, i) {
+                            final s = player.keepListeningSuggestions[i];
+                            return GestureDetector(
+                              onTap: () => player.playTrack(songToMediaItem(s)),
+                              child: _songCardV2(s),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
                   SliverToBoxAdapter(
                       child: _sectionHeader('Featured Playlists')),
                   SliverToBoxAdapter(
@@ -771,64 +807,66 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ]),
       );
 
-  Widget _madeForYouRow(PlayerProvider player) => SizedBox(
-        height: 170,
-        child: ListView.builder(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          itemCount: _madeForYou.length,
-          itemBuilder: (_, i) {
-            final item = _madeForYou[i];
-            return GestureDetector(
-              onTap: () => player.search(item['query']),
-              child: Container(
-                width: 150,
-                margin: const EdgeInsets.only(right: 12),
-                decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    gradient: LinearGradient(
-                        colors: [item['c1'] as Color, item['c2'] as Color],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight)),
-                padding: const EdgeInsets.all(14),
-                child: Stack(children: [
-                  Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(item['title'],
-                            style: TextStyle(
-                                color: item['accent'] as Color,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 4),
-                        Text(item['subtitle'],
-                            style: const TextStyle(
-                                color: Colors.white60, fontSize: 11)),
-                      ]),
-                  Positioned(bottom: 0, left: 0, child: _madeForYouArt(item)),
-                  Positioned(
-                      bottom: 0,
-                      right: 0,
-                      child: GestureDetector(
-                        onTap: () => player.search(item['query']),
-                        child: Container(
-                          width: 30,
-                          height: 30,
-                          decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border:
-                                  Border.all(color: Colors.white54, width: 1.5),
-                              color: Colors.black26),
-                          child: const Icon(Icons.play_arrow_rounded,
-                              color: Colors.white, size: 16),
-                        ),
-                      )),
+  Widget _madeForYouRow(PlayerProvider player) {
+    final cards = _buildMadeForYouCards(player);
+    return SizedBox(
+      height: 170,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: cards.length,
+        itemBuilder: (_, i) {
+          final item = cards[i];
+          final color = Color(item['color'] as int);
+          return GestureDetector(
+            onTap: () => player.search(item['query']),
+            child: Container(
+              width: 150,
+              margin: const EdgeInsets.only(right: 12),
+              decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  gradient: LinearGradient(
+                      colors: [color.withOpacity(0.15), Colors.black],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight)),
+              padding: const EdgeInsets.all(14),
+              child: Stack(children: [
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(item['label'],
+                      style: TextStyle(
+                          color: color,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 4),
+                  Text(item['sub'],
+                      style:
+                          const TextStyle(color: Colors.white60, fontSize: 11)),
                 ]),
-              ),
-            );
-          },
-        ),
-      );
+                Positioned(bottom: 0, left: 0, child: _madeForYouArt(item)),
+                Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: GestureDetector(
+                      onTap: () => player.search(item['query']),
+                      child: Container(
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border:
+                                Border.all(color: Colors.white54, width: 1.5),
+                            color: Colors.black26),
+                        child: const Icon(Icons.play_arrow_rounded,
+                            color: Colors.white, size: 16),
+                      ),
+                    )),
+              ]),
+            ),
+          );
+        },
+      ),
+    );
+  }
 
   Widget _madeForYouArt(Map<String, dynamic> item) {
     if (item['type'] == 'wave') {
